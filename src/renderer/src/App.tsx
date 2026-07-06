@@ -259,7 +259,12 @@ function CompactView({ sessions, settings, now, update, setSelectedId }: ViewPro
               update({ viewMode: 'full' })
             }}
           >
-            <span className={`dot dot-${s.status}`} title={s.status} />
+            <div className="compact-status">
+              <span className={`dot dot-${s.status}`} title={s.status} />
+              <span className="compact-model" title={s.model ?? undefined}>
+                {shortModel(s.model)}
+              </span>
+            </div>
             <div className="compact-main">
               <div className="compact-project">{projectName(s)}</div>
               <div className="compact-title">{s.title ?? formatAgo(s.lastActivityAt, now)}</div>

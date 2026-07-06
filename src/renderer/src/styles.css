@@ -342,6 +342,25 @@ tbody tr:hover {
   background: var(--row-hover);
 }
 
+.compact-status {
+  flex: none;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.compact-model {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--muted);
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dot {
   flex: none;
   width: 9px;
