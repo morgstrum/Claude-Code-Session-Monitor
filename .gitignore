@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# electron-builder output
+release/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,103 @@
+import { describe, expect, it } from 'vitest'
+import { parseLine } from '../src/core/parser'
+
+const assistantLine = JSON.stringify({
+  type: 'assistant',
+  uuid: 'rec-1',
+  parentUuid: 'rec-0',
+  timestamp: '2026-06-18T10:55:20.432Z',
+  sessionId: 'sess-1',
+  cwd: '/Users/me/proj',
+  gitBranch: 'main',
+  isSidechain: false,
+  requestId: 'req_123',
+  message: {
+    role: 'assistant',
+    model: 'claude-opus-4-8',
+    id: 'msg_01ABC',
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: 'hi' }],
+    usage: {
+      input_tokens: 7009,
+      output_tokens: 177,
+      cache_creation_input_tokens: 4187,
+      cache_read_input_tokens: 18846,
+      service_tier: 'standard'
+    }
+  }
+})
+
+describe('parseLine', () => {
+  it('parses assistant records with usage and model', () => {
+    const r = parseLine(assistantLine)
+    expect(r).not.toBeNull()
+    expect(r!.type).toBe('assistant')
+    expect(r!.sessionId).toBe('sess-1')
+    expect(r!.model).toBe('claude-opus-4-8')
+    expect(r!.messageId).toBe('msg_01ABC')
+    expect(r!.stopReason).toBe('end_turn')
+    expect(r!.usage).toEqual({
+      inputTokens: 7009,
+      outputTokens: 177,
+      cacheCreationTokens: 4187,
+      cacheReadTokens: 18846
+    })
+    expect(r!.timestamp).toBe(Date.parse('2026-06-18T10:55:20.432Z'))
+  })
+
+  it('parses user records with string content as user text', () => {
+    const r = parseLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u1',
+        timestamp: '2026-06-18T10:55:18.146Z',
+        sessionId: 'sess-1',
+        message: { role: 'user', content: 'do the thing' }
+      })
+    )
+    expect(r!.type).toBe('user')
+    expect(r!.isUserText).toBe(true)
+    expect(r!.usage).toBeNull()
+  })
+
+  it('treats tool_result-only user records as non-text', () => {
+    const r = parseLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u2',
+        sessionId: 'sess-1',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }]
+        }
+      })
+    )
+    expect(r!.isUserText).toBe(false)
+  })
+
+  it('extracts titles from ai-title records', () => {
+    const r = parseLine(
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Build session monitor', sessionId: 'sess-1' })
+    )
+    expect(r!.title).toBe('Build session monitor')
+  })
+
+  it('returns null for malformed lines', () => {
+    expect(parseLine('not json')).toBeNull()
+    expect(parseLine('42')).toBeNull()
+    expect(parseLine('{"noType": true}')).toBeNull()
+  })
+
+  it('survives missing usage and null model', () => {
+    const r = parseLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a2',
+        sessionId: 'sess-1',
+        message: { role: 'assistant', model: null, content: [] }
+      })
+    )
+    expect(r!.model).toBeNull()
+    expect(r!.usage).toBeNull()
+  })
+})

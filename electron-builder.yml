@@ -1,0 +1,38 @@
+appId: com.morgstrum.claude-code-session-monitor
+productName: Claude Code Session Monitor
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+
+# Unsigned builds: no Apple Developer / Windows signing certs configured.
+# macOS users get a Gatekeeper prompt on first launch (right-click > Open).
+mac:
+  category: public.app-category.developer-tools
+  identity: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+linux:
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64]
+
+nsis:
+  oneClick: true
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: morgstrum
+  repo: Claude-Code-Session-Monitor
