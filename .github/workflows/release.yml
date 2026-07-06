@@ -10,7 +10,24 @@ permissions:
   contents: write
 
 jobs:
+  # Create the release up front so the three platform jobs upload into it.
+  # Without this, concurrent electron-builder publishes race to create the
+  # release and GitHub ends up with duplicate releases on the same tag.
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release for tag if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "${GITHUB_REF_NAME#v}" --notes ""
+
   build:
+    needs: create-release
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
