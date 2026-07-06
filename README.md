@@ -27,10 +27,17 @@ Download the latest release for your platform from
 - **Windows** — `.exe` installer
 - **Linux** — `.AppImage`
 
-The builds are unsigned (no paid developer certificates), so on first launch:
+The builds are not notarized with Apple / signed with a Windows cert (no paid developer
+certificates), so on first launch:
 
-- **macOS**: Gatekeeper will block a double-click. Right-click the app → **Open** → **Open**,
-  or run `xattr -dr com.apple.quarantine "/Applications/Claude Code Session Monitor.app"`.
+- **macOS**: Gatekeeper blocks the app — depending on macOS version it says "unidentified
+  developer" or claims the app is **"damaged"** (it isn't). Either allow it via
+  System Settings → Privacy & Security → **Open Anyway**, or run:
+
+  ```sh
+  xattr -cr "/Applications/Claude Code Session Monitor.app"
+  ```
+
 - **Windows**: SmartScreen may warn — choose **More info → Run anyway**.
 
 ## Releasing

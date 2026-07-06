@@ -6,8 +6,11 @@ files:
   - out/**/*
   - package.json
 
-# Unsigned builds: no Apple Developer / Windows signing certs configured.
-# macOS users get a Gatekeeper prompt on first launch (right-click > Open).
+# No Apple Developer / Windows signing certs configured. macOS bundles are
+# ad-hoc signed in scripts/after-pack.cjs so Gatekeeper shows "unidentified
+# developer" instead of "damaged"; users still need Open Anyway or xattr -cr.
+afterPack: ./scripts/after-pack.cjs
+
 mac:
   category: public.app-category.developer-tools
   identity: null
