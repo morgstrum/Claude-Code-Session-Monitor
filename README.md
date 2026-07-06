@@ -40,6 +40,18 @@ certificates), so on first launch:
 
 - **Windows**: SmartScreen may warn — choose **More info → Run anyway**.
 
+## Install from source (macOS — no Gatekeeper warnings)
+
+Apps built locally never get the quarantine attribute, so this path has no security
+prompts at all:
+
+```sh
+git clone https://github.com/morgstrum/Claude-Code-Session-Monitor.git
+cd Claude-Code-Session-Monitor
+npm install
+npm run install:app   # builds for your architecture and installs to /Applications
+```
+
 ## Releasing
 
 Releases are built by [GitHub Actions](.github/workflows/release.yml). **Bump `version` in
