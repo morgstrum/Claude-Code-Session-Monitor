@@ -31,6 +31,12 @@ export interface SessionSummary {
   costUsd: number
   /** Optional conversation summary (from summary records) */
   title: string | null
+  /** Tool name -> invocation count (main conversation only) */
+  tools: Record<string, number>
+  /** Slash command name -> invocation count */
+  commands: Record<string, number>
+  /** Spawned agent type -> spawn count */
+  agents: Record<string, number>
 }
 
 export type SortKey = 'lastActivityAt' | 'costUsd' | 'contextFraction' | 'cwd' | 'status'
@@ -45,5 +51,13 @@ export const IPC = {
   /** renderer -> main: request full snapshot */
   getSessions: 'sessions:get',
   /** main -> renderer: push updated sessions (batched) */
-  sessionsUpdated: 'sessions:updated'
+  sessionsUpdated: 'sessions:updated',
+  /** renderer -> main: switch between full and compact window layouts */
+  setCompactMode: 'window:set-compact-mode',
+  /** renderer -> main: toggle always-on-top */
+  setAlwaysOnTop: 'window:set-always-on-top',
+  /** renderer -> main: fit the compact window height to its content (px) */
+  setCompactHeight: 'window:set-compact-height',
+  /** renderer -> main: set light/dark/auto theme (drives nativeTheme.themeSource) */
+  setTheme: 'window:set-theme'
 } as const

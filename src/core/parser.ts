@@ -8,6 +8,14 @@
  */
 import type { TokenTotals } from '../shared/types'
 
+export interface ToolUse {
+  /** toolu_… block id, used to dedupe across re-reads */
+  id: string | null
+  name: string
+  /** set when this is an agent spawn (Agent/Task tool) */
+  subagentType: string | null
+}
+
 export interface TranscriptRecord {
   type: string
   uuid: string | null
@@ -25,6 +33,10 @@ export interface TranscriptRecord {
   usage: TokenTotals | null
   /** user records only: true if the message carries real user text (not just tool_result blocks) */
   isUserText: boolean
+  /** assistant records: tool_use blocks in this record's content */
+  toolUses: ToolUse[]
+  /** user records: slash command name when the message is a command invocation */
+  commandName: string | null
   /** ai-title records */
   title: string | null
   /** true when message.content mentions a compact/summary boundary (best-effort) */
@@ -56,6 +68,7 @@ export function parseLine(line: string): TranscriptRecord | null {
   let model: string | null = null
   let messageId: string | null = null
   let stopReason: string | null = null
+  const toolUses: ToolUse[] = []
   if (raw.type === 'assistant' && message) {
     model = str(message.model)
     messageId = str(message.id)
@@ -69,20 +82,47 @@ export function parseLine(line: string): TranscriptRecord | null {
         cacheReadTokens: num(u.cache_read_input_tokens)
       }
     }
+    if (Array.isArray(message.content)) {
+      for (const b of message.content) {
+        if (!b || typeof b !== 'object') continue
+        const block = b as Record<string, unknown>
+        if (block.type !== 'tool_use') continue
+        const name = str(block.name)
+        if (!name) continue
+        const input = (block.input ?? null) as Record<string, unknown> | null
+        toolUses.push({
+          id: str(block.id),
+          name,
+          subagentType: input ? str(input.subagent_type) : null
+        })
+      }
+    }
   }
 
   let isUserText = false
   let isCompactBoundary = false
+  let commandName: string | null = null
   if (raw.type === 'user' && message) {
     const content = message.content
+    let text = ''
     if (typeof content === 'string') {
+      text = content
       isUserText = content.trim().length > 0
       isCompactBoundary = content.includes('conversation was summarized')
     } else if (Array.isArray(content)) {
       isUserText = content.some(
         (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'text'
       )
+      text = content
+        .map((b) =>
+          b && typeof b === 'object' && (b as { type?: string }).type === 'text'
+            ? String((b as { text?: unknown }).text ?? '')
+            : ''
+        )
+        .join('\n')
     }
+    const cmd = /<command-name>([^<]+)<\/command-name>/.exec(text)
+    if (cmd?.[1]) commandName = cmd[1].trim()
     if ((raw as { isCompactSummary?: unknown }).isCompactSummary === true) {
       isCompactBoundary = true
     }
@@ -106,6 +146,8 @@ export function parseLine(line: string): TranscriptRecord | null {
     stopReason,
     usage,
     isUserText,
+    toolUses,
+    commandName,
     title: str((raw as { aiTitle?: unknown }).aiTitle),
     isCompactBoundary
   }

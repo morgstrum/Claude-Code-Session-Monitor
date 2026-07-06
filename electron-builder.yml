@@ -36,3 +36,5 @@ publish:
   provider: github
   owner: morgstrum
   repo: Claude-Code-Session-Monitor
+  # Publish releases immediately instead of leaving them as drafts
+  releaseType: release

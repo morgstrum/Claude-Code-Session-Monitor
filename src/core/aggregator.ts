@@ -21,6 +21,11 @@ interface SessionState {
   contextTokens: number
   costUsd: number
   title: string | null
+  tools: Record<string, number>
+  commands: Record<string, number>
+  agents: Record<string, number>
+  /** tool_use block ids already counted (guards against file re-reads) */
+  seenToolUseIds: Set<string>
   lastEvent: LastEvent
   /** message.ids whose usage has been counted (one API response can span several records) */
   seenMessageIds: Set<string>
@@ -71,6 +76,9 @@ export class SessionAggregator {
     this.restored.set(summary.sessionId, {
       ...summary,
       totals: { ...summary.totals },
+      tools: { ...summary.tools },
+      commands: { ...summary.commands },
+      agents: { ...summary.agents },
       // A session can't still be running if all we have is its stored row
       status: summary.status === 'running' ? 'interrupted' : summary.status
     })
@@ -116,6 +124,13 @@ export class SessionAggregator {
           record.usage.cacheCreationTokens +
           record.usage.outputTokens
       }
+      for (const tu of record.toolUses) {
+        const key = tu.id ?? `${record.uuid ?? 'rec'}:${tu.name}`
+        if (s.seenToolUseIds.has(key)) continue
+        s.seenToolUseIds.add(key)
+        s.tools[tu.name] = (s.tools[tu.name] ?? 0) + 1
+        if (tu.subagentType) s.agents[tu.subagentType] = (s.agents[tu.subagentType] ?? 0) + 1
+      }
       s.messageCount += 1
       if (record.stopReason === 'refusal') s.lastEvent = 'assistant-error'
       else if (record.stopReason === 'end_turn' || record.stopReason === 'stop_sequence') {
@@ -125,6 +140,9 @@ export class SessionAggregator {
       if (record.isUserText) s.messageCount += 1
       s.lastEvent = 'user'
       if (record.isCompactBoundary) s.contextTokens = 0
+      if (record.commandName) {
+        s.commands[record.commandName] = (s.commands[record.commandName] ?? 0) + 1
+      }
     }
   }
 
@@ -151,7 +169,10 @@ export class SessionAggregator {
         contextTokens: s.contextTokens,
         contextFraction: window > 0 ? Math.min(1, s.contextTokens / window) : 0,
         costUsd: s.costUsd,
-        title: s.title
+        title: s.title,
+        tools: { ...s.tools },
+        commands: { ...s.commands },
+        agents: { ...s.agents }
       }
     })
   }
@@ -173,6 +194,10 @@ export class SessionAggregator {
         contextTokens: 0,
         costUsd: 0,
         title: null,
+        tools: {},
+        commands: {},
+        agents: {},
+        seenToolUseIds: new Set(),
         lastEvent: 'none',
         seenMessageIds: new Set()
       }

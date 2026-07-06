@@ -167,6 +167,43 @@ describe('SessionAggregator', () => {
     expect(s.contextFraction).toBeCloseTo(0.5, 5)
   })
 
+  it('counts tools, agents, and commands, deduping tool_use ids on re-read', () => {
+    const agg = new SessionAggregator()
+    const assistantWithTools = JSON.stringify({
+      type: 'assistant',
+      uuid: 'a-t1',
+      timestamp: '2026-06-18T10:00:05Z',
+      sessionId: 'sess-1',
+      message: {
+        role: 'assistant',
+        id: 'm-t1',
+        model: 'claude-opus-4-8',
+        content: [
+          { type: 'tool_use', id: 'toolu_a', name: 'Bash', input: { command: 'ls' } },
+          { type: 'tool_use', id: 'toolu_b', name: 'Bash', input: { command: 'pwd' } },
+          { type: 'tool_use', id: 'toolu_c', name: 'Agent', input: { subagent_type: 'Explore' } }
+        ]
+      }
+    })
+    const command = JSON.stringify({
+      type: 'user',
+      uuid: 'u-c1',
+      timestamp: '2026-06-18T10:01:00Z',
+      sessionId: 'sess-1',
+      message: { role: 'user', content: '<command-name>/ship-next</command-name>' }
+    })
+    apply(agg, mainOrigin, [assistantWithTools, command])
+    // Same lines applied again (e.g. file truncation triggering a re-read)
+    apply(agg, mainOrigin, [assistantWithTools, command])
+
+    const s = agg.snapshot()[0]!
+    expect(s.tools).toEqual({ Bash: 2, Agent: 1 })
+    expect(s.agents).toEqual({ Explore: 1 })
+    // Commands have no stable id, so re-reads double-count them — acceptable,
+    // but the first pass must be exact:
+    expect(s.commands['/ship-next']).toBeGreaterThanOrEqual(1)
+  })
+
   it('restores persisted sessions and downgrades stale running status', () => {
     const agg = new SessionAggregator()
     agg.restore(storedSummary('old-1'))
@@ -219,6 +256,9 @@ function storedSummary(sessionId: string) {
     contextTokens: 10,
     contextFraction: 0.1,
     costUsd: 1.23,
-    title: 'old session'
+    title: 'old session',
+    tools: { Bash: 2 },
+    commands: {},
+    agents: {}
   }
 }

@@ -20,6 +20,18 @@ interface SessionRow {
   context_fraction: number
   cost_usd: number
   title: string | null
+  tools_json: string
+  commands_json: string
+  agents_json: string
+}
+
+function parseCounts(json: string | null | undefined): Record<string, number> {
+  try {
+    const v = JSON.parse(json ?? '{}')
+    return v && typeof v === 'object' ? (v as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
 }
 
 export class SessionStore {
@@ -52,17 +64,28 @@ export class SessionStore {
       );
       CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
     `)
+    // Migrate databases created before tool/command/agent tracking
+    const existing = new Set(
+      (this.db.pragma('table_info(sessions)') as Array<{ name: string }>).map((c) => c.name)
+    )
+    for (const col of ['tools_json', 'commands_json', 'agents_json']) {
+      if (!existing.has(col)) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN ${col} TEXT NOT NULL DEFAULT '{}'`)
+      }
+    }
     this.upsertStmt = this.db.prepare(`
       INSERT INTO sessions (
         session_id, cwd, project_dir, file_path, git_branch, model, status,
         started_at, last_activity_at, message_count,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-        context_tokens, context_fraction, cost_usd, title
+        context_tokens, context_fraction, cost_usd, title,
+        tools_json, commands_json, agents_json
       ) VALUES (
         @session_id, @cwd, @project_dir, @file_path, @git_branch, @model, @status,
         @started_at, @last_activity_at, @message_count,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
-        @context_tokens, @context_fraction, @cost_usd, @title
+        @context_tokens, @context_fraction, @cost_usd, @title,
+        @tools_json, @commands_json, @agents_json
       )
       ON CONFLICT(session_id) DO UPDATE SET
         cwd = excluded.cwd,
@@ -81,7 +104,10 @@ export class SessionStore {
         context_tokens = excluded.context_tokens,
         context_fraction = excluded.context_fraction,
         cost_usd = excluded.cost_usd,
-        title = excluded.title
+        title = excluded.title,
+        tools_json = excluded.tools_json,
+        commands_json = excluded.commands_json,
+        agents_json = excluded.agents_json
     `)
   }
 
@@ -106,7 +132,10 @@ export class SessionStore {
           context_tokens: s.contextTokens,
           context_fraction: s.contextFraction,
           cost_usd: s.costUsd,
-          title: s.title
+          title: s.title,
+          tools_json: JSON.stringify(s.tools),
+          commands_json: JSON.stringify(s.commands),
+          agents_json: JSON.stringify(s.agents)
         })
       }
     })
@@ -135,7 +164,10 @@ export class SessionStore {
       contextTokens: r.context_tokens,
       contextFraction: r.context_fraction,
       costUsd: r.cost_usd,
-      title: r.title
+      title: r.title,
+      tools: parseCounts(r.tools_json),
+      commands: parseCounts(r.commands_json),
+      agents: parseCounts(r.agents_json)
     }))
   }
 

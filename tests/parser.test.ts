@@ -88,6 +88,59 @@ describe('parseLine', () => {
     expect(parseLine('{"noType": true}')).toBeNull()
   })
 
+  it('extracts tool_use blocks with agent spawn types', () => {
+    const r = parseLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a3',
+        sessionId: 'sess-1',
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-8',
+          content: [
+            { type: 'text', text: 'working' },
+            { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls' } },
+            {
+              type: 'tool_use',
+              id: 'toolu_2',
+              name: 'Agent',
+              input: { subagent_type: 'Explore', description: 'look around' }
+            }
+          ]
+        }
+      })
+    )
+    expect(r!.toolUses).toEqual([
+      { id: 'toolu_1', name: 'Bash', subagentType: null },
+      { id: 'toolu_2', name: 'Agent', subagentType: 'Explore' }
+    ])
+  })
+
+  it('extracts slash command names from user messages', () => {
+    const r = parseLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u3',
+        sessionId: 'sess-1',
+        message: {
+          role: 'user',
+          content: '<command-name>/ship-next</command-name>\n<command-args></command-args>'
+        }
+      })
+    )
+    expect(r!.commandName).toBe('/ship-next')
+
+    const plain = parseLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u4',
+        sessionId: 'sess-1',
+        message: { role: 'user', content: 'just text' }
+      })
+    )
+    expect(plain!.commandName).toBeNull()
+  })
+
   it('survives missing usage and null model', () => {
     const r = parseLine(
       JSON.stringify({
