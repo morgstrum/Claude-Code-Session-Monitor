@@ -4,6 +4,21 @@ Electron desktop app that monitors local Claude Code sessions in real time. It t
 transcripts Claude Code writes under `~/.claude/projects/` and shows a live-updating list of
 sessions with status, context usage, token counts, and running cost.
 
+## Quick install
+
+**macOS — build from source (recommended, zero security prompts):**
+
+```sh
+git clone https://github.com/morgstrum/Claude-Code-Session-Monitor.git
+cd Claude-Code-Session-Monitor
+npm install
+npm run install:app   # builds for your machine and installs to /Applications
+```
+
+**Or download a prebuilt release** for macOS / Windows / Linux from
+[GitHub Releases](https://github.com/morgstrum/Claude-Code-Session-Monitor/releases/latest) —
+note the [first-launch security prompts](#install-prebuilt-downloads) on downloaded builds.
+
 ## Features
 
 - **Live monitoring** — watches `~/.claude/projects/**/*.jsonl` with chokidar and tails new
@@ -18,7 +33,7 @@ sessions with status, context usage, token counts, and running cost.
 - **Persistence** — aggregated session rows are stored in SQLite (`better-sqlite3`) in the app's
   user-data directory, so history survives Claude Code's ~30-day transcript auto-purge.
 
-## Install (no build required)
+## Install (prebuilt downloads)
 
 Download the latest release for your platform from
 [GitHub Releases](https://github.com/morgstrum/Claude-Code-Session-Monitor/releases):
@@ -40,17 +55,8 @@ certificates), so on first launch:
 
 - **Windows**: SmartScreen may warn — choose **More info → Run anyway**.
 
-## Install from source (macOS — no Gatekeeper warnings)
-
-Apps built locally never get the quarantine attribute, so this path has no security
-prompts at all:
-
-```sh
-git clone https://github.com/morgstrum/Claude-Code-Session-Monitor.git
-cd Claude-Code-Session-Monitor
-npm install
-npm run install:app   # builds for your architecture and installs to /Applications
-```
+Building from source avoids all of this on macOS — locally built apps never get the
+quarantine attribute (see [Quick install](#quick-install)).
 
 ## Releasing
 
