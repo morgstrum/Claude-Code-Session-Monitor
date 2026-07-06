@@ -35,12 +35,13 @@ The builds are unsigned (no paid developer certificates), so on first launch:
 
 ## Releasing
 
-Releases are built by [GitHub Actions](.github/workflows/release.yml). Pushing a tag like
-`v0.1.0` builds macOS/Windows/Linux packages with electron-builder and attaches them to a
-GitHub Release automatically:
+Releases are built by [GitHub Actions](.github/workflows/release.yml). **Bump `version` in
+package.json to match the tag first** — electron-builder names artifacts and picks the GitHub
+release from package.json, not the git tag (CI fails fast on a mismatch):
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+npm version 0.2.0 --no-git-tag-version   # or edit package.json
+git commit -am "v0.2.0" && git tag v0.2.0 && git push origin main v0.2.0
 ```
 
 Local packaging: `npm run dist:mac` (or `dist:win` / `dist:linux`) — output lands in `release/`.
@@ -54,6 +55,11 @@ npm test           # vitest suite for the parser/aggregator/tailer core
 npm run typecheck  # strict TS across main + renderer
 npm run build      # production bundles into out/
 ```
+
+**After running `npm run dist`/`dist:mac`, run `npx electron-rebuild -f -w better-sqlite3` before
+`npm run dev`** — the multi-arch mac build finishes on Intel and leaves an x64 build of the
+native SQLite module in `node_modules`, which fails to load in dev on Apple Silicon. If dev
+fails with "Electron uninstall" instead, re-run `node node_modules/electron/install.js`.
 
 Headless smoke test (parses all local transcripts, prints a JSON snapshot, exits):
 
