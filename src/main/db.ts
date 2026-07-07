@@ -23,6 +23,7 @@ interface SessionRow {
   tools_json: string
   commands_json: string
   agents_json: string
+  cache_ttl_ms: number
 }
 
 function parseCounts(json: string | null | undefined): Record<string, number> {
@@ -73,19 +74,22 @@ export class SessionStore {
         this.db.exec(`ALTER TABLE sessions ADD COLUMN ${col} TEXT NOT NULL DEFAULT '{}'`)
       }
     }
+    if (!existing.has('cache_ttl_ms')) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN cache_ttl_ms INTEGER NOT NULL DEFAULT 300000`)
+    }
     this.upsertStmt = this.db.prepare(`
       INSERT INTO sessions (
         session_id, cwd, project_dir, file_path, git_branch, model, status,
         started_at, last_activity_at, message_count,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         context_tokens, context_fraction, cost_usd, title,
-        tools_json, commands_json, agents_json
+        tools_json, commands_json, agents_json, cache_ttl_ms
       ) VALUES (
         @session_id, @cwd, @project_dir, @file_path, @git_branch, @model, @status,
         @started_at, @last_activity_at, @message_count,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @context_tokens, @context_fraction, @cost_usd, @title,
-        @tools_json, @commands_json, @agents_json
+        @tools_json, @commands_json, @agents_json, @cache_ttl_ms
       )
       ON CONFLICT(session_id) DO UPDATE SET
         cwd = excluded.cwd,
@@ -107,7 +111,8 @@ export class SessionStore {
         title = excluded.title,
         tools_json = excluded.tools_json,
         commands_json = excluded.commands_json,
-        agents_json = excluded.agents_json
+        agents_json = excluded.agents_json,
+        cache_ttl_ms = excluded.cache_ttl_ms
     `)
   }
 
@@ -135,7 +140,8 @@ export class SessionStore {
           title: s.title,
           tools_json: JSON.stringify(s.tools),
           commands_json: JSON.stringify(s.commands),
-          agents_json: JSON.stringify(s.agents)
+          agents_json: JSON.stringify(s.agents),
+          cache_ttl_ms: s.cacheTtlMs
         })
       }
     })
@@ -167,7 +173,8 @@ export class SessionStore {
       title: r.title,
       tools: parseCounts(r.tools_json),
       commands: parseCounts(r.commands_json),
-      agents: parseCounts(r.agents_json)
+      agents: parseCounts(r.agents_json),
+      cacheTtlMs: r.cache_ttl_ms ?? 300_000
     }))
   }
 

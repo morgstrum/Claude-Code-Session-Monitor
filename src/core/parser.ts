@@ -35,6 +35,8 @@ export interface TranscriptRecord {
   isUserText: boolean
   /** assistant records: tool_use blocks in this record's content */
   toolUses: ToolUse[]
+  /** assistant records: TTL of the cache written this turn, when known */
+  cacheTtl: '1h' | '5m' | null
   /** user records: slash command name when the message is a command invocation */
   commandName: string | null
   /** ai-title records */
@@ -69,6 +71,7 @@ export function parseLine(line: string): TranscriptRecord | null {
   let messageId: string | null = null
   let stopReason: string | null = null
   const toolUses: ToolUse[] = []
+  let cacheTtl: '1h' | '5m' | null = null
   if (raw.type === 'assistant' && message) {
     model = str(message.model)
     messageId = str(message.id)
@@ -80,6 +83,13 @@ export function parseLine(line: string): TranscriptRecord | null {
         outputTokens: num(u.output_tokens),
         cacheCreationTokens: num(u.cache_creation_input_tokens),
         cacheReadTokens: num(u.cache_read_input_tokens)
+      }
+      const cc = u.cache_creation as Record<string, unknown> | undefined
+      if (cc && typeof cc === 'object') {
+        if (num(cc.ephemeral_1h_input_tokens) > 0) cacheTtl = '1h'
+        else if (num(cc.ephemeral_5m_input_tokens) > 0) cacheTtl = '5m'
+      } else if (usage.cacheCreationTokens > 0) {
+        cacheTtl = '5m'
       }
     }
     if (Array.isArray(message.content)) {
@@ -147,6 +157,7 @@ export function parseLine(line: string): TranscriptRecord | null {
     usage,
     isUserText,
     toolUses,
+    cacheTtl,
     commandName,
     title: str((raw as { aiTitle?: unknown }).aiTitle),
     isCompactBoundary

@@ -204,6 +204,41 @@ describe('SessionAggregator', () => {
     expect(s.commands['/ship-next']).toBeGreaterThanOrEqual(1)
   })
 
+  it('tracks the cache TTL from the latest turn that wrote cache', () => {
+    const agg = new SessionAggregator()
+    const withTtl = (id: string, cache_creation: object): string =>
+      JSON.stringify({
+        type: 'assistant',
+        uuid: `u-${id}`,
+        timestamp: '2026-06-18T10:00:05Z',
+        sessionId: 'sess-1',
+        message: {
+          role: 'assistant',
+          id,
+          model: 'claude-opus-4-8',
+          content: [],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 100,
+            cache_read_input_tokens: 0,
+            cache_creation
+          }
+        }
+      })
+    // Default before any cache info
+    expect(
+      (() => {
+        const a = new SessionAggregator()
+        apply(a, mainOrigin, [assistant({ ts: '2026-06-18T10:00:05Z', messageId: 'm0' })])
+        return a.snapshot()[0]!.cacheTtlMs
+      })()
+    ).toBe(300_000)
+
+    apply(agg, mainOrigin, [withTtl('m1', { ephemeral_1h_input_tokens: 500 })])
+    expect(agg.snapshot()[0]!.cacheTtlMs).toBe(3_600_000)
+  })
+
   it('restores persisted sessions and downgrades stale running status', () => {
     const agg = new SessionAggregator()
     agg.restore(storedSummary('old-1'))
@@ -259,6 +294,7 @@ function storedSummary(sessionId: string) {
     title: 'old session',
     tools: { Bash: 2 },
     commands: {},
-    agents: {}
+    agents: {},
+    cacheTtlMs: 300_000
   }
 }

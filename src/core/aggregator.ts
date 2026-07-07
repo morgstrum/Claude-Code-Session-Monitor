@@ -24,6 +24,7 @@ interface SessionState {
   tools: Record<string, number>
   commands: Record<string, number>
   agents: Record<string, number>
+  cacheTtlMs: number
   /** tool_use block ids already counted (guards against file re-reads) */
   seenToolUseIds: Set<string>
   lastEvent: LastEvent
@@ -116,6 +117,7 @@ export class SessionAggregator {
 
     if (record.type === 'assistant') {
       if (record.model && record.model !== '<synthetic>') s.model = record.model
+      if (record.cacheTtl) s.cacheTtlMs = record.cacheTtl === '1h' ? 3_600_000 : 300_000
       if (record.usage) {
         // Context at the latest turn: everything the model just saw plus what it wrote
         s.contextTokens =
@@ -172,7 +174,8 @@ export class SessionAggregator {
         title: s.title,
         tools: { ...s.tools },
         commands: { ...s.commands },
-        agents: { ...s.agents }
+        agents: { ...s.agents },
+        cacheTtlMs: s.cacheTtlMs
       }
     })
   }
@@ -197,6 +200,7 @@ export class SessionAggregator {
         tools: {},
         commands: {},
         agents: {},
+        cacheTtlMs: 300_000,
         seenToolUseIds: new Set(),
         lastEvent: 'none',
         seenMessageIds: new Set()

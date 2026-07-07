@@ -37,6 +37,12 @@ export interface SessionSummary {
   commands: Record<string, number>
   /** Spawned agent type -> spawn count */
   agents: Record<string, number>
+  /**
+   * TTL of the session's prompt cache in ms (5m or 1h ephemeral, from the
+   * last turn's usage). Cache is cold once now - lastActivityAt > cacheTtlMs,
+   * meaning resuming the session re-writes the whole context at full price.
+   */
+  cacheTtlMs: number
 }
 
 export type SortKey = 'lastActivityAt' | 'costUsd' | 'contextFraction' | 'cwd' | 'status'

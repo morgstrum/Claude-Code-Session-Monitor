@@ -369,6 +369,25 @@ tbody tr:hover {
   background: var(--muted);
 }
 
+.snowflake {
+  flex: none;
+  font-size: 13px;
+  line-height: 9px;
+  color: #6ea8c9;
+  cursor: default;
+}
+
+.snowflake-sm {
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .snowflake {
+    color: #7fc4e8;
+  }
+}
+
 .dot-running {
   background: var(--running);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--running) 25%, transparent);

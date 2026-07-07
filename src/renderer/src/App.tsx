@@ -44,6 +44,27 @@ function shortModel(model: string | null): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
 
+/**
+ * True once the session's prompt cache has expired: resuming it re-writes
+ * the whole context at full input price instead of cheap cache reads.
+ */
+function isCacheCold(s: SessionSummary, now: number): boolean {
+  if (s.status === 'running') return false
+  if (s.lastActivityAt === null) return true
+  return now - s.lastActivityAt > s.cacheTtlMs
+}
+
+function Snowflake({ small }: { small?: boolean }): React.JSX.Element {
+  return (
+    <span
+      className={small ? 'snowflake snowflake-sm' : 'snowflake'}
+      title="Prompt cache expired — resuming this session re-writes its context at full input cost"
+    >
+      ❄
+    </span>
+  )
+}
+
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings())
@@ -260,7 +281,11 @@ function CompactView({ sessions, settings, now, update, setSelectedId }: ViewPro
             }}
           >
             <div className="compact-status">
-              <span className={`dot dot-${s.status}`} title={s.status} />
+              {isCacheCold(s, now) ? (
+                <Snowflake />
+              ) : (
+                <span className={`dot dot-${s.status}`} title={s.status} />
+              )}
               <span className="compact-model" title={s.model ?? undefined}>
                 {shortModel(s.model)}
               </span>
@@ -429,6 +454,7 @@ function FullView({
                 </td>
                 <td>
                   <span className={`status status-${s.status}`}>{s.status}</span>
+                  {isCacheCold(s, now) && <Snowflake small />}
                 </td>
                 <td className="model">{shortModel(s.model)}</td>
                 <td className="num cost">{formatCost(s.costUsd)}</td>
@@ -635,6 +661,19 @@ function DetailOverview({ s, now }: DetailProps): React.JSX.Element {
             {formatTokens(s.contextTokens)}
             {contextWindow ? ` of ${formatTokens(contextWindow)}` : ''} (
             {Math.round(s.contextFraction * 100)}%)
+          </dd>
+
+          <dt>Cache</dt>
+          <dd>
+            {isCacheCold(s, now) ? (
+              <>
+                <Snowflake small /> cold — resuming re-writes context
+              </>
+            ) : s.status === 'running' ? (
+              'warm'
+            ) : (
+              `warm — expires in ${Math.max(1, Math.ceil((s.cacheTtlMs - (now - (s.lastActivityAt ?? now))) / 60_000))}m`
+            )}
           </dd>
         </dl>
       </div>

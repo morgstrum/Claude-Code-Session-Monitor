@@ -141,6 +141,31 @@ describe('parseLine', () => {
     expect(plain!.commandName).toBeNull()
   })
 
+  it('detects the prompt-cache TTL from usage.cache_creation', () => {
+    const mk = (cache_creation?: object, cache_creation_input_tokens = 0): string =>
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a-ttl',
+        sessionId: 'sess-1',
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-8',
+          content: [],
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens, cache_read_input_tokens: 0, cache_creation }
+        }
+      })
+    expect(
+      parseLine(mk({ ephemeral_1h_input_tokens: 4187, ephemeral_5m_input_tokens: 0 }))!.cacheTtl
+    ).toBe('1h')
+    expect(
+      parseLine(mk({ ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 900 }))!.cacheTtl
+    ).toBe('5m')
+    // Older records without the breakdown: any cache write implies the 5m default
+    expect(parseLine(mk(undefined, 500))!.cacheTtl).toBe('5m')
+    // No cache written this turn -> unknown
+    expect(parseLine(mk({ ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 }))!.cacheTtl).toBeNull()
+  })
+
   it('survives missing usage and null model', () => {
     const r = parseLine(
       JSON.stringify({
