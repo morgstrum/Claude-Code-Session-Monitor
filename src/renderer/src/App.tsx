@@ -834,7 +834,13 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
 const CHART_W = 600
 const CHART_H = 96
 
-function TurnTimeline({ turns }: { turns: TurnCost[] }): React.JSX.Element | null {
+function TurnTimeline({
+  turns,
+  compactionsAt
+}: {
+  turns: TurnCost[]
+  compactionsAt: number[]
+}): React.JSX.Element | null {
   if (turns.length < 2) return null
   const maxUsd = Math.max(...turns.map((t) => t.usd), 0.000001)
   const total = turns.reduce((a, t) => a + t.usd, 0)
@@ -891,6 +897,22 @@ function TurnTimeline({ turns }: { turns: TurnCost[] }): React.JSX.Element | nul
             </rect>
           )
         })}
+        {compactionsAt.map((ct, j) => {
+          const idx = turns.findIndex((t) => t.t !== null && t.t >= ct)
+          const x = (idx === -1 ? turns.length : idx) * barW
+          return (
+            <rect
+              key={`c${j}`}
+              className="turn-compaction"
+              x={Math.max(0, x - 1)}
+              y={0}
+              width={2}
+              height={CHART_H}
+            >
+              <title>{`Context compacted — window overflowed\n${timeLabel(ct)}`}</title>
+            </rect>
+          )
+        })}
         <polyline className="turn-cumline" points={cumPoints} />
       </svg>
       <div className="turn-chart-axis">
@@ -898,6 +920,11 @@ function TurnTimeline({ turns }: { turns: TurnCost[] }): React.JSX.Element | nul
         <span className="turn-chart-legend">
           <span className="legend-swatch legend-bar" /> $/turn
           <span className="legend-swatch legend-refresh" /> cache refresh
+          {compactionsAt.length > 0 && (
+            <>
+              <span className="legend-swatch legend-compaction" /> compaction
+            </>
+          )}
           <span className="legend-swatch legend-line" /> cumulative
         </span>
         <span>{timeLabel(turns[turns.length - 1]?.t ?? null)}</span>
@@ -946,7 +973,7 @@ function DetailCost({ s }: { s: SessionSummary }): React.JSX.Element {
   return (
     <div className="detail">
       <div className="detail-col detail-col-full">
-        <TurnTimeline turns={ins.turns} />
+        <TurnTimeline turns={ins.turns} compactionsAt={ins.compactionsAt} />
       </div>
       <div className="detail-col detail-col-wide">
         <h3 className="detail-section">Spend by token type</h3>
@@ -973,6 +1000,13 @@ function DetailCost({ s }: { s: SessionSummary }): React.JSX.Element {
                 {formatCost(ins.cacheRefreshUsd)} re-writing context after the cache expired
               </>
             )}
+          </dd>
+
+          <dt>Compactions</dt>
+          <dd>
+            {ins.compactionsAt.length === 0
+              ? 'none — context never overflowed'
+              : `${ins.compactionsAt.length} — the context filled up and was summarized, losing detail (purple markers on the timeline)`}
           </dd>
         </dl>
       </div>

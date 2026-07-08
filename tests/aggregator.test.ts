@@ -343,6 +343,34 @@ describe('SessionAggregator', () => {
     expect(c.userChars).toBe('thanks'.length)
   })
 
+  it('records compaction timestamps from user and system boundary records', () => {
+    const agg = new SessionAggregator()
+    apply(agg, mainOrigin, [
+      assistant({ ts: '2026-06-18T10:00:00Z', messageId: 'm1', input: 100 }),
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u-comp',
+        timestamp: '2026-06-18T10:05:00Z',
+        sessionId: 'sess-1',
+        isCompactSummary: true,
+        message: { role: 'user', content: 'This conversation was summarized.' }
+      }),
+      JSON.stringify({
+        type: 'system',
+        subtype: 'compact_boundary',
+        uuid: 'sys-comp',
+        timestamp: '2026-06-18T11:00:00Z',
+        sessionId: 'sess-1'
+      })
+    ])
+    const ins = agg.snapshot()[0]!.insights
+    expect(ins.compactionsAt).toEqual([
+      Date.parse('2026-06-18T10:05:00Z'),
+      Date.parse('2026-06-18T11:00:00Z')
+    ])
+    expect(ins.efficiency.compactions).toBe(2)
+  })
+
   it('collects efficiency signals: errors, churn, re-reads, corrections, first-edit cost', () => {
     const agg = new SessionAggregator()
     const toolTurn = (id: string, ts: string, name: string, filePath?: string): string =>

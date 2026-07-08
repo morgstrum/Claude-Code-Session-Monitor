@@ -60,6 +60,8 @@ export interface SessionInsights {
   apiTurns: number
   /** Per-turn cost timeline, in transcript order */
   turns: TurnCost[]
+  /** timestamps (ms) of context compactions, for timeline markers */
+  compactionsAt: number[]
   /** Turns that re-wrote a large cache after the TTL had lapsed */
   cacheRefreshCount: number
   /** Estimated $ spent on those cold-cache re-writes */
@@ -79,6 +81,7 @@ export function emptyInsights(): SessionInsights {
     costParts: { inputUsd: 0, outputUsd: 0, cacheWriteUsd: 0, cacheReadUsd: 0 },
     apiTurns: 0,
     turns: [],
+    compactionsAt: [],
     cacheRefreshCount: 0,
     cacheRefreshUsd: 0,
     composition: { assistantChars: 0, userChars: 0, attachmentChars: 0, toolChars: {} },

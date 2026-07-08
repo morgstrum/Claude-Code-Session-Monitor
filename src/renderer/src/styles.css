@@ -621,6 +621,16 @@ tbody tr:hover {
   fill: #58a6d6;
 }
 
+.turn-compaction {
+  fill: #a06cd5;
+  opacity: 0.9;
+}
+
+.legend-compaction {
+  background: #a06cd5;
+  margin-left: 10px;
+}
+
 .turn-cumline {
   fill: none;
   stroke: color-mix(in srgb, var(--fg) 45%, transparent);

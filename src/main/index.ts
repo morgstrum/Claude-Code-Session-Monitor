@@ -81,17 +81,22 @@ app.whenReady().then(async () => {
     if (!icon.isEmpty()) app.dock.setIcon(icon)
   }
 
-  monitor = new SessionMonitor(join(app.getPath('userData'), 'sessions.db'))
+  // Test hook: point the watcher at a fixture directory (with its own DB,
+  // so synthetic sessions never enter the real history).
+  const rootOverride = process.env.SESSION_MONITOR_ROOT
+  monitor = rootOverride
+    ? new SessionMonitor(join(rootOverride, '.sessions.db'), rootOverride)
+    : new SessionMonitor(join(app.getPath('userData'), 'sessions.db'))
 
   // Headless verification mode: parse everything, dump a snapshot, exit.
   if (process.env.SESSION_MONITOR_SMOKE === '1') {
     await monitor.start()
     await monitor.idle()
     const snap = monitor.snapshot()
-    console.log(JSON.stringify(snap, null, 2))
     await monitor.stop()
     monitor = null
-    app.exit(0)
+    // Exit only after stdout drains — large snapshots get truncated otherwise
+    process.stdout.write(JSON.stringify(snap, null, 2) + '\n', () => app.exit(0))
     return
   }
 

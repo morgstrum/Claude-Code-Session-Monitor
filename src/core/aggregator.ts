@@ -93,6 +93,7 @@ export class SessionAggregator {
         ...summary.insights,
         costParts: { ...summary.insights.costParts },
         turns: summary.insights.turns.map((t) => ({ ...t })),
+        compactionsAt: [...summary.insights.compactionsAt],
         composition: {
           ...summary.insights.composition,
           toolChars: { ...summary.insights.composition.toolChars }
@@ -174,6 +175,13 @@ export class SessionAggregator {
     if (record.gitBranch) s.gitBranch = record.gitBranch
     if (record.title) s.title = record.title
 
+    // Compaction boundaries arrive as user or system records
+    if (record.isCompactBoundary) {
+      s.contextTokens = 0
+      s.insights.efficiency.compactions += 1
+      if (record.timestamp !== null) s.insights.compactionsAt.push(record.timestamp)
+    }
+
     if (record.type === 'assistant') {
       if (record.model && record.model !== '<synthetic>') s.model = record.model
       if (record.cacheTtl) s.cacheTtlMs = record.cacheTtl === '1h' ? 3_600_000 : 300_000
@@ -208,10 +216,6 @@ export class SessionAggregator {
     } else if (record.type === 'user') {
       if (record.isUserText) s.messageCount += 1
       s.lastEvent = 'user'
-      if (record.isCompactBoundary) {
-        s.contextTokens = 0
-        s.insights.efficiency.compactions += 1
-      }
       if (record.commandName) {
         s.commands[record.commandName] = (s.commands[record.commandName] ?? 0) + 1
       }
@@ -264,6 +268,7 @@ export class SessionAggregator {
           costParts: { ...s.insights.costParts },
           apiTurns: s.insights.apiTurns,
           turns: s.insights.turns.map((t) => ({ ...t })),
+          compactionsAt: [...s.insights.compactionsAt],
           cacheRefreshCount: s.insights.cacheRefreshCount,
           cacheRefreshUsd: s.insights.cacheRefreshUsd,
           composition: {
