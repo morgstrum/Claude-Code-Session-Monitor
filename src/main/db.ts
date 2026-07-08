@@ -36,6 +36,7 @@ function parseInsights(json: string | null | undefined): SessionInsights {
     return {
       costParts: { ...empty.costParts, ...v.costParts },
       apiTurns: typeof v.apiTurns === 'number' ? v.apiTurns : 0,
+      turns: Array.isArray(v.turns) ? v.turns : [],
       cacheRefreshCount: typeof v.cacheRefreshCount === 'number' ? v.cacheRefreshCount : 0,
       cacheRefreshUsd: typeof v.cacheRefreshUsd === 'number' ? v.cacheRefreshUsd : 0,
       composition: {

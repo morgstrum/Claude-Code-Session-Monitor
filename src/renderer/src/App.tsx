@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import type { SessionStatus, SessionSummary, SortKey } from '@shared/types'
+import type { SessionStatus, SessionSummary, SortKey, TurnCost } from '@shared/types'
 import { COMPACT_COUNT_CHOICES, loadSettings, saveSettings } from './settings'
 import type { AppSettings, ThemeChoice } from './settings'
 
@@ -635,6 +635,81 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
   )
 }
 
+const CHART_W = 600
+const CHART_H = 96
+
+function TurnTimeline({ turns }: { turns: TurnCost[] }): React.JSX.Element | null {
+  if (turns.length < 2) return null
+  const maxUsd = Math.max(...turns.map((t) => t.usd), 0.000001)
+  const total = turns.reduce((a, t) => a + t.usd, 0)
+  const barW = CHART_W / turns.length
+
+  // Cumulative spend as a 0..1 path over the same x axis
+  let acc = 0
+  const cumPoints = turns
+    .map((t, i) => {
+      acc += t.usd
+      const x = (i + 0.5) * barW
+      const y = CHART_H - (acc / total) * CHART_H
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+
+  const timeLabel = (t: number | null): string =>
+    t === null
+      ? ''
+      : new Date(t).toLocaleString(undefined, {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+
+  return (
+    <div className="turn-chart">
+      <div className="turn-chart-head">
+        <span>Cost per turn</span>
+        <span className="turn-chart-max">max {formatCost(maxUsd)}/turn</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+        preserveAspectRatio="none"
+        className="turn-chart-svg"
+      >
+        {turns.map((t, i) => {
+          const h = Math.max(1.5, (t.usd / maxUsd) * CHART_H)
+          return (
+            <rect
+              key={i}
+              className={t.refresh ? 'turn-bar turn-bar-refresh' : 'turn-bar'}
+              x={i * barW}
+              y={CHART_H - h}
+              width={Math.max(barW - 0.4, 0.6)}
+              height={h}
+            >
+              <title>
+                {`Turn ${i + 1} — ${formatCost(t.usd)}${t.refresh ? ' (cache refresh)' : ''}${
+                  t.t ? `\n${timeLabel(t.t)}` : ''
+                }${t.writeUsd > 0.001 ? `\ncache write ${formatCost(t.writeUsd)}` : ''}`}
+              </title>
+            </rect>
+          )
+        })}
+        <polyline className="turn-cumline" points={cumPoints} />
+      </svg>
+      <div className="turn-chart-axis">
+        <span>{timeLabel(turns[0]?.t ?? null)}</span>
+        <span className="turn-chart-legend">
+          <span className="legend-swatch legend-bar" /> $/turn
+          <span className="legend-swatch legend-refresh" /> cache refresh
+          <span className="legend-swatch legend-line" /> cumulative
+        </span>
+        <span>{timeLabel(turns[turns.length - 1]?.t ?? null)}</span>
+      </div>
+    </div>
+  )
+}
+
 function DetailCost({ s }: { s: SessionSummary }): React.JSX.Element {
   const ins = s.insights
   const totalUsd =
@@ -674,6 +749,9 @@ function DetailCost({ s }: { s: SessionSummary }): React.JSX.Element {
 
   return (
     <div className="detail">
+      <div className="detail-col detail-col-full">
+        <TurnTimeline turns={ins.turns} />
+      </div>
       <div className="detail-col detail-col-wide">
         <h3 className="detail-section">Spend by token type</h3>
         <CountList counts={spend} emptyLabel="No usage recorded." format={formatCost} />

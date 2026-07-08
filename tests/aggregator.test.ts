@@ -281,6 +281,26 @@ describe('SessionAggregator', () => {
     expect(s.insights.cacheRefreshUsd).toBeCloseTo((240_000 * 6.25) / 1e6, 10)
   })
 
+  it('records a per-turn cost timeline in transcript order', () => {
+    const agg = new SessionAggregator()
+    apply(agg, mainOrigin, [
+      assistant({ ts: '2026-06-18T10:00:00Z', messageId: 'm1', cacheWrite: 200_000 }),
+      // duplicate record of the same turn must not add a timeline point
+      assistant({ ts: '2026-06-18T10:00:01Z', messageId: 'm1', cacheWrite: 200_000 }),
+      assistant({ ts: '2026-06-18T10:32:00Z', messageId: 'm2', cacheWrite: 240_000 })
+    ])
+    // subagent turns don't appear on the main timeline
+    apply(agg, subOrigin, [
+      assistant({ ts: '2026-06-18T10:33:00Z', messageId: 'sub-1', input: 999 })
+    ])
+    const turns = agg.snapshot()[0]!.insights.turns
+    expect(turns).toHaveLength(2)
+    expect(turns[0]!.t).toBe(Date.parse('2026-06-18T10:00:00Z'))
+    expect(turns[0]!.refresh).toBe(false)
+    expect(turns[1]!.refresh).toBe(true)
+    expect(turns[1]!.usd).toBeCloseTo((240_000 * 6.25) / 1e6, 10)
+  })
+
   it('attributes tool_result sizes to the originating tool', () => {
     const agg = new SessionAggregator()
     const toolUse = JSON.stringify({

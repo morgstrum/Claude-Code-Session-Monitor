@@ -7,11 +7,25 @@ export interface CostBreakdown {
   cacheReadUsd: number
 }
 
+/** One LLM round trip in the main conversation */
+export interface TurnCost {
+  /** turn timestamp (ms), null when the record had none */
+  t: number | null
+  /** total $ for the turn */
+  usd: number
+  /** $ of cache writes within the turn (spikes = context growth or refresh) */
+  writeUsd: number
+  /** true when this turn re-wrote a large cache after the TTL lapsed */
+  refresh: boolean
+}
+
 /** Derived cost-driver metrics for one session */
 export interface SessionInsights {
   costParts: CostBreakdown
   /** Deduped LLM round trips in the main conversation */
   apiTurns: number
+  /** Per-turn cost timeline, in transcript order */
+  turns: TurnCost[]
   /** Turns that re-wrote a large cache after the TTL had lapsed */
   cacheRefreshCount: number
   /** Estimated $ spent on those cold-cache re-writes */
@@ -29,6 +43,7 @@ export function emptyInsights(): SessionInsights {
   return {
     costParts: { inputUsd: 0, outputUsd: 0, cacheWriteUsd: 0, cacheReadUsd: 0 },
     apiTurns: 0,
+    turns: [],
     cacheRefreshCount: 0,
     cacheRefreshUsd: 0,
     composition: { assistantChars: 0, userChars: 0, attachmentChars: 0, toolChars: {} }

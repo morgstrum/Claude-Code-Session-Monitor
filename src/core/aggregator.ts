@@ -90,6 +90,7 @@ export class SessionAggregator {
       insights: {
         ...summary.insights,
         costParts: { ...summary.insights.costParts },
+        turns: summary.insights.turns.map((t) => ({ ...t })),
         composition: {
           ...summary.insights.composition,
           toolChars: { ...summary.insights.composition.toolChars }
@@ -130,15 +131,21 @@ export class SessionAggregator {
           s.insights.apiTurns += 1
           // A large cache write after the TTL lapsed = the cold-cache tax:
           // the context had to be re-written at the cache-write premium.
-          if (
+          const isRefresh =
             s.lastTurnAt !== null &&
             record.timestamp !== null &&
             record.timestamp - s.lastTurnAt > s.cacheTtlMs &&
             record.usage.cacheCreationTokens > REFRESH_MIN_TOKENS
-          ) {
+          if (isRefresh) {
             s.insights.cacheRefreshCount += 1
             s.insights.cacheRefreshUsd += parts.cacheWriteUsd
           }
+          s.insights.turns.push({
+            t: record.timestamp,
+            usd: parts.inputUsd + parts.outputUsd + parts.cacheWriteUsd + parts.cacheReadUsd,
+            writeUsd: parts.cacheWriteUsd,
+            refresh: isRefresh
+          })
           if (record.timestamp !== null) s.lastTurnAt = record.timestamp
         }
       }
@@ -227,6 +234,7 @@ export class SessionAggregator {
         insights: {
           costParts: { ...s.insights.costParts },
           apiTurns: s.insights.apiTurns,
+          turns: s.insights.turns.map((t) => ({ ...t })),
           cacheRefreshCount: s.insights.cacheRefreshCount,
           cacheRefreshUsd: s.insights.cacheRefreshUsd,
           composition: {

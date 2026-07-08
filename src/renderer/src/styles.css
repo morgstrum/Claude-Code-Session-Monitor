@@ -577,6 +577,95 @@ tbody tr:hover {
   max-width: 520px;
 }
 
+.detail-col-full {
+  flex-basis: 100%;
+  max-width: 1080px;
+}
+
+/* --- per-turn cost timeline --- */
+
+.turn-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 6px 0 6px;
+}
+
+.turn-chart-max {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.turn-chart-svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+  background: color-mix(in srgb, var(--muted) 7%, transparent);
+  border-radius: 6px;
+}
+
+.turn-bar {
+  fill: var(--accent);
+  opacity: 0.85;
+}
+
+.turn-bar:hover {
+  opacity: 1;
+}
+
+.turn-bar-refresh {
+  fill: #58a6d6;
+}
+
+.turn-cumline {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fg) 45%, transparent);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.turn-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.turn-chart-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend-bar {
+  background: var(--accent);
+}
+
+.legend-refresh {
+  background: #58a6d6;
+  margin-left: 10px;
+}
+
+.legend-line {
+  height: 2px;
+  background: color-mix(in srgb, var(--fg) 45%, transparent);
+  margin-left: 10px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 86px 1fr;
