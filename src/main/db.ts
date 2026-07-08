@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
-import type { SessionStatus, SessionSummary } from '../shared/types'
+import { emptyInsights } from '../shared/types'
+import type { SessionInsights, SessionStatus, SessionSummary } from '../shared/types'
 
 interface SessionRow {
   session_id: string
@@ -24,6 +25,28 @@ interface SessionRow {
   commands_json: string
   agents_json: string
   cache_ttl_ms: number
+  insights_json: string
+}
+
+function parseInsights(json: string | null | undefined): SessionInsights {
+  const empty = emptyInsights()
+  try {
+    const v = JSON.parse(json ?? '{}') as Partial<SessionInsights>
+    if (!v || typeof v !== 'object') return empty
+    return {
+      costParts: { ...empty.costParts, ...v.costParts },
+      apiTurns: typeof v.apiTurns === 'number' ? v.apiTurns : 0,
+      cacheRefreshCount: typeof v.cacheRefreshCount === 'number' ? v.cacheRefreshCount : 0,
+      cacheRefreshUsd: typeof v.cacheRefreshUsd === 'number' ? v.cacheRefreshUsd : 0,
+      composition: {
+        ...empty.composition,
+        ...v.composition,
+        toolChars: v.composition?.toolChars ?? {}
+      }
+    }
+  } catch {
+    return empty
+  }
 }
 
 function parseCounts(json: string | null | undefined): Record<string, number> {
@@ -77,19 +100,22 @@ export class SessionStore {
     if (!existing.has('cache_ttl_ms')) {
       this.db.exec(`ALTER TABLE sessions ADD COLUMN cache_ttl_ms INTEGER NOT NULL DEFAULT 300000`)
     }
+    if (!existing.has('insights_json')) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN insights_json TEXT NOT NULL DEFAULT '{}'`)
+    }
     this.upsertStmt = this.db.prepare(`
       INSERT INTO sessions (
         session_id, cwd, project_dir, file_path, git_branch, model, status,
         started_at, last_activity_at, message_count,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         context_tokens, context_fraction, cost_usd, title,
-        tools_json, commands_json, agents_json, cache_ttl_ms
+        tools_json, commands_json, agents_json, cache_ttl_ms, insights_json
       ) VALUES (
         @session_id, @cwd, @project_dir, @file_path, @git_branch, @model, @status,
         @started_at, @last_activity_at, @message_count,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @context_tokens, @context_fraction, @cost_usd, @title,
-        @tools_json, @commands_json, @agents_json, @cache_ttl_ms
+        @tools_json, @commands_json, @agents_json, @cache_ttl_ms, @insights_json
       )
       ON CONFLICT(session_id) DO UPDATE SET
         cwd = excluded.cwd,
@@ -112,7 +138,8 @@ export class SessionStore {
         tools_json = excluded.tools_json,
         commands_json = excluded.commands_json,
         agents_json = excluded.agents_json,
-        cache_ttl_ms = excluded.cache_ttl_ms
+        cache_ttl_ms = excluded.cache_ttl_ms,
+        insights_json = excluded.insights_json
     `)
   }
 
@@ -141,7 +168,8 @@ export class SessionStore {
           tools_json: JSON.stringify(s.tools),
           commands_json: JSON.stringify(s.commands),
           agents_json: JSON.stringify(s.agents),
-          cache_ttl_ms: s.cacheTtlMs
+          cache_ttl_ms: s.cacheTtlMs,
+          insights_json: JSON.stringify(s.insights)
         })
       }
     })
@@ -174,7 +202,8 @@ export class SessionStore {
       tools: parseCounts(r.tools_json),
       commands: parseCounts(r.commands_json),
       agents: parseCounts(r.agents_json),
-      cacheTtlMs: r.cache_ttl_ms ?? 300_000
+      cacheTtlMs: r.cache_ttl_ms ?? 300_000,
+      insights: parseInsights(r.insights_json)
     }))
   }
 

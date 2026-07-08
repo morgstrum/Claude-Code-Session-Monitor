@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SessionAggregator, originForFile } from '../src/core/aggregator'
 import { parseLine } from '../src/core/parser'
+import { emptyInsights } from '../src/shared/types'
 
 const ROOT = '/home/u/.claude/projects'
 const MAIN = `${ROOT}/-Users-me-proj/sess-1.jsonl`
@@ -239,6 +240,89 @@ describe('SessionAggregator', () => {
     expect(agg.snapshot()[0]!.cacheTtlMs).toBe(3_600_000)
   })
 
+  it('breaks cost down by token type and counts turns', () => {
+    const agg = new SessionAggregator()
+    apply(agg, mainOrigin, [
+      assistant({
+        ts: '2026-06-18T10:00:05Z',
+        messageId: 'm1',
+        input: 1000,
+        output: 100,
+        cacheWrite: 10_000,
+        cacheRead: 50_000
+      }),
+      assistant({ ts: '2026-06-18T10:01:00Z', messageId: 'm2', input: 500, output: 50 })
+    ])
+    const s = agg.snapshot()[0]!
+    const p = s.insights.costParts
+    // opus-4-8 rates: in $5, out $25, write $6.25, read $0.5 per MTok
+    expect(p.inputUsd).toBeCloseTo((1500 * 5) / 1e6, 10)
+    expect(p.outputUsd).toBeCloseTo((150 * 25) / 1e6, 10)
+    expect(p.cacheWriteUsd).toBeCloseTo((10_000 * 6.25) / 1e6, 10)
+    expect(p.cacheReadUsd).toBeCloseTo((50_000 * 0.5) / 1e6, 10)
+    expect(p.inputUsd + p.outputUsd + p.cacheWriteUsd + p.cacheReadUsd).toBeCloseTo(s.costUsd, 10)
+    expect(s.insights.apiTurns).toBe(2)
+  })
+
+  it('detects cold-cache refreshes: big cache write after the TTL lapsed', () => {
+    const agg = new SessionAggregator()
+    apply(agg, mainOrigin, [
+      // Turn 1 writes cache (5m TTL by default in the fixture: no cache_creation breakdown)
+      assistant({ ts: '2026-06-18T10:00:00Z', messageId: 'm1', cacheWrite: 200_000 }),
+      // Turn 2 within TTL: not a refresh even though it writes cache
+      assistant({ ts: '2026-06-18T10:02:00Z', messageId: 'm2', cacheWrite: 50_000 }),
+      // Turn 3 arrives 30 min later (> 5m TTL) with a big re-write: refresh
+      assistant({ ts: '2026-06-18T10:32:00Z', messageId: 'm3', cacheWrite: 240_000 }),
+      // Turn 4: small write after a gap -> ordinary growth, not a refresh
+      assistant({ ts: '2026-06-18T11:20:00Z', messageId: 'm4', cacheWrite: 500 })
+    ])
+    const s = agg.snapshot()[0]!
+    expect(s.insights.cacheRefreshCount).toBe(1)
+    expect(s.insights.cacheRefreshUsd).toBeCloseTo((240_000 * 6.25) / 1e6, 10)
+  })
+
+  it('attributes tool_result sizes to the originating tool', () => {
+    const agg = new SessionAggregator()
+    const toolUse = JSON.stringify({
+      type: 'assistant',
+      uuid: 'a-c1',
+      timestamp: '2026-06-18T10:00:05Z',
+      sessionId: 'sess-1',
+      message: {
+        role: 'assistant',
+        id: 'm1',
+        model: 'claude-opus-4-8',
+        content: [
+          { type: 'text', text: 'running a command' },
+          { type: 'tool_use', id: 'toolu_x', name: 'Bash', input: { command: 'ls' } }
+        ]
+      }
+    })
+    const toolResult = JSON.stringify({
+      type: 'user',
+      uuid: 'u-c1',
+      timestamp: '2026-06-18T10:00:06Z',
+      sessionId: 'sess-1',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: 'x'.repeat(4000) }]
+      }
+    })
+    const attachment = JSON.stringify({
+      type: 'attachment',
+      uuid: 'att-1',
+      timestamp: '2026-06-18T10:00:07Z',
+      sessionId: 'sess-1',
+      attachment: { type: 'hook_success', content: 'y'.repeat(800), stdout: 'z'.repeat(200) }
+    })
+    apply(agg, mainOrigin, [toolUse, toolResult, attachment, user('2026-06-18T10:00:08Z', 'thanks')])
+    const c = agg.snapshot()[0]!.insights.composition
+    expect(c.toolChars).toEqual({ Bash: 4000 })
+    expect(c.assistantChars).toBe('running a command'.length)
+    expect(c.attachmentChars).toBe(1000)
+    expect(c.userChars).toBe('thanks'.length)
+  })
+
   it('restores persisted sessions and downgrades stale running status', () => {
     const agg = new SessionAggregator()
     agg.restore(storedSummary('old-1'))
@@ -295,6 +379,7 @@ function storedSummary(sessionId: string) {
     tools: { Bash: 2 },
     commands: {},
     agents: {},
-    cacheTtlMs: 300_000
+    cacheTtlMs: 300_000,
+    insights: emptyInsights()
   }
 }

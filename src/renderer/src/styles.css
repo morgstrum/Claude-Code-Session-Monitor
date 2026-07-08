@@ -541,6 +541,25 @@ tbody tr:hover {
   padding: 6px 0 2px;
 }
 
+.detail-grid.detail-grid-wide {
+  grid-template-columns: 132px 1fr;
+  column-gap: 14px;
+}
+
+.detail-note {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.detail .count-list {
+  margin-top: 8px;
+}
+
+.detail .count-row {
+  grid-template-columns: minmax(150px, 260px) 1fr 64px;
+}
+
 .detail {
   display: flex;
   flex-wrap: wrap;

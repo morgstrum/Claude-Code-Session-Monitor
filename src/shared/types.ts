@@ -1,5 +1,40 @@
 export type SessionStatus = 'running' | 'completed' | 'interrupted' | 'error' | 'unknown'
 
+export interface CostBreakdown {
+  inputUsd: number
+  outputUsd: number
+  cacheWriteUsd: number
+  cacheReadUsd: number
+}
+
+/** Derived cost-driver metrics for one session */
+export interface SessionInsights {
+  costParts: CostBreakdown
+  /** Deduped LLM round trips in the main conversation */
+  apiTurns: number
+  /** Turns that re-wrote a large cache after the TTL had lapsed */
+  cacheRefreshCount: number
+  /** Estimated $ spent on those cold-cache re-writes */
+  cacheRefreshUsd: number
+  /** Content sizes (chars) by source — divide by ~4 for a token estimate */
+  composition: {
+    assistantChars: number
+    userChars: number
+    attachmentChars: number
+    toolChars: Record<string, number>
+  }
+}
+
+export function emptyInsights(): SessionInsights {
+  return {
+    costParts: { inputUsd: 0, outputUsd: 0, cacheWriteUsd: 0, cacheReadUsd: 0 },
+    apiTurns: 0,
+    cacheRefreshCount: 0,
+    cacheRefreshUsd: 0,
+    composition: { assistantChars: 0, userChars: 0, attachmentChars: 0, toolChars: {} }
+  }
+}
+
 export interface TokenTotals {
   inputTokens: number
   outputTokens: number
@@ -43,6 +78,7 @@ export interface SessionSummary {
    * meaning resuming the session re-writes the whole context at full price.
    */
   cacheTtlMs: number
+  insights: SessionInsights
 }
 
 export type SortKey = 'lastActivityAt' | 'costUsd' | 'contextFraction' | 'cwd' | 'status'

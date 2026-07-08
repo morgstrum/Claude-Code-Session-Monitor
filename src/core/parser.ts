@@ -37,6 +37,14 @@ export interface TranscriptRecord {
   toolUses: ToolUse[]
   /** assistant records: TTL of the cache written this turn, when known */
   cacheTtl: '1h' | '5m' | null
+  /** chars of assistant text in this record (composition estimate input) */
+  assistantTextChars: number
+  /** chars of user-authored text in this record */
+  userTextChars: number
+  /** tool_result blocks in user records: result size per originating tool_use */
+  toolResults: Array<{ toolUseId: string | null; chars: number }>
+  /** chars of attachment payloads (hook output, injected file/system context) */
+  attachmentChars: number
   /** user records: slash command name when the message is a command invocation */
   commandName: string | null
   /** ai-title records */
@@ -72,6 +80,9 @@ export function parseLine(line: string): TranscriptRecord | null {
   let stopReason: string | null = null
   const toolUses: ToolUse[] = []
   let cacheTtl: '1h' | '5m' | null = null
+  let assistantTextChars = 0
+  let userTextChars = 0
+  const toolResults: Array<{ toolUseId: string | null; chars: number }> = []
   if (raw.type === 'assistant' && message) {
     model = str(message.model)
     messageId = str(message.id)
@@ -96,6 +107,10 @@ export function parseLine(line: string): TranscriptRecord | null {
       for (const b of message.content) {
         if (!b || typeof b !== 'object') continue
         const block = b as Record<string, unknown>
+        if (block.type === 'text' && typeof block.text === 'string') {
+          assistantTextChars += block.text.length
+          continue
+        }
         if (block.type !== 'tool_use') continue
         const name = str(block.name)
         if (!name) continue
@@ -130,7 +145,14 @@ export function parseLine(line: string): TranscriptRecord | null {
             : ''
         )
         .join('\n')
+      for (const b of content) {
+        if (!b || typeof b !== 'object') continue
+        const block = b as Record<string, unknown>
+        if (block.type !== 'tool_result') continue
+        toolResults.push({ toolUseId: str(block.tool_use_id), chars: contentChars(block.content) })
+      }
     }
+    userTextChars = text.length
     const cmd = /<command-name>([^<]+)<\/command-name>/.exec(text)
     if (cmd?.[1]) commandName = cmd[1].trim()
     if ((raw as { isCompactSummary?: unknown }).isCompactSummary === true) {
@@ -139,6 +161,17 @@ export function parseLine(line: string): TranscriptRecord | null {
   }
   if (raw.type === 'system' && str((raw as { subtype?: unknown }).subtype) === 'compact_boundary') {
     isCompactBoundary = true
+  }
+
+  let attachmentChars = 0
+  if (raw.type === 'attachment') {
+    const att = (raw as { attachment?: unknown }).attachment as Record<string, unknown> | null
+    if (att && typeof att === 'object') {
+      for (const key of ['content', 'stdout', 'stderr']) {
+        const v = att[key]
+        if (typeof v === 'string') attachmentChars += v.length
+      }
+    }
   }
 
   return {
@@ -160,6 +193,23 @@ export function parseLine(line: string): TranscriptRecord | null {
     cacheTtl,
     commandName,
     title: str((raw as { aiTitle?: unknown }).aiTitle),
-    isCompactBoundary
+    isCompactBoundary,
+    assistantTextChars,
+    userTextChars,
+    toolResults,
+    attachmentChars
   }
+}
+
+/** Size of a tool_result content payload: plain string or array of text blocks */
+function contentChars(content: unknown): number {
+  if (typeof content === 'string') return content.length
+  if (!Array.isArray(content)) return 0
+  let chars = 0
+  for (const b of content) {
+    if (b && typeof b === 'object' && typeof (b as { text?: unknown }).text === 'string') {
+      chars += ((b as { text: string }).text || '').length
+    }
+  }
+  return chars
 }

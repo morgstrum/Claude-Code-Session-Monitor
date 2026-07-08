@@ -58,14 +58,26 @@ export function contextWindowFor(model: string | null): number {
   return pricingFor(model).contextWindow
 }
 
+export interface CostParts {
+  inputUsd: number
+  outputUsd: number
+  cacheWriteUsd: number
+  cacheReadUsd: number
+}
+
+/** Cost of one usage record broken down by token type */
+export function usageCostParts(model: string | null, usage: TokenTotals): CostParts {
+  const p = pricingFor(model)
+  return {
+    inputUsd: (usage.inputTokens * p.input) / MTOK,
+    outputUsd: (usage.outputTokens * p.output) / MTOK,
+    cacheWriteUsd: (usage.cacheCreationTokens * p.cacheWrite) / MTOK,
+    cacheReadUsd: (usage.cacheReadTokens * p.cacheRead) / MTOK
+  }
+}
+
 /** Cost in USD for one usage record from a given model */
 export function usageCostUsd(model: string | null, usage: TokenTotals): number {
-  const p = pricingFor(model)
-  return (
-    (usage.inputTokens * p.input +
-      usage.outputTokens * p.output +
-      usage.cacheCreationTokens * p.cacheWrite +
-      usage.cacheReadTokens * p.cacheRead) /
-    MTOK
-  )
+  const c = usageCostParts(model, usage)
+  return c.inputUsd + c.outputUsd + c.cacheWriteUsd + c.cacheReadUsd
 }

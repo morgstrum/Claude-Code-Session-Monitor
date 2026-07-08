@@ -551,7 +551,7 @@ interface DetailProps {
   now: number
 }
 
-type DetailTab = 'overview' | 'tools' | 'commands' | 'agents'
+type DetailTab = 'overview' | 'cost' | 'tools' | 'commands' | 'agents'
 
 function countOf(rec: Record<string, number>): number {
   return Object.values(rec).reduce((a, n) => a + n, 0)
@@ -559,14 +559,19 @@ function countOf(rec: Record<string, number>): number {
 
 function CountList({
   counts,
-  emptyLabel
+  emptyLabel,
+  format
 }: {
   counts: Record<string, number>
   emptyLabel: string
+  format?: (n: number) => string
 }): React.JSX.Element {
-  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  const entries = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   if (entries.length === 0) return <div className="count-empty">{emptyLabel}</div>
   const max = entries[0]?.[1] ?? 1
+  const fmt = format ?? String
   return (
     <div className="count-list">
       {entries.map(([name, n]) => (
@@ -577,7 +582,7 @@ function CountList({
           <span className="count-bar">
             <span className="count-fill" style={{ width: `${Math.max(4, (n / max) * 100)}%` }} />
           </span>
-          <span className="count-n">{n}</span>
+          <span className="count-n">{fmt(n)}</span>
         </div>
       ))}
     </div>
@@ -589,6 +594,7 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
 
   const tabs: Array<{ key: DetailTab; label: string }> = [
     { key: 'overview', label: 'Overview' },
+    { key: 'cost', label: 'Cost' },
     { key: 'tools', label: `Tools (${countOf(s.tools)})` },
     { key: 'commands', label: `Commands (${countOf(s.commands)})` },
     { key: 'agents', label: `Agents (${countOf(s.agents)})` }
@@ -609,6 +615,7 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
         ))}
       </div>
       {tab === 'overview' && <DetailOverview s={s} now={now} />}
+      {tab === 'cost' && <DetailCost s={s} />}
       {tab === 'tools' && (
         <div className="detail-pane">
           <CountList counts={s.tools} emptyLabel="No tool calls recorded." />
@@ -624,6 +631,90 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
           <CountList counts={s.agents} emptyLabel="No agents spawned." />
         </div>
       )}
+    </div>
+  )
+}
+
+function DetailCost({ s }: { s: SessionSummary }): React.JSX.Element {
+  const ins = s.insights
+  const totalUsd =
+    ins.costParts.inputUsd +
+    ins.costParts.outputUsd +
+    ins.costParts.cacheWriteUsd +
+    ins.costParts.cacheReadUsd
+
+  const pct = (v: number): string => (totalUsd > 0 ? ` (${Math.round((v / totalUsd) * 100)}%)` : '')
+  const spend: Record<string, number> = {
+    [`Cache reads — context re-read each turn${pct(ins.costParts.cacheReadUsd)}`]:
+      ins.costParts.cacheReadUsd,
+    [`Cache writes — new/refreshed context${pct(ins.costParts.cacheWriteUsd)}`]:
+      ins.costParts.cacheWriteUsd,
+    [`Output — generated text & tool calls${pct(ins.costParts.outputUsd)}`]:
+      ins.costParts.outputUsd,
+    [`Input — uncached prompt tokens${pct(ins.costParts.inputUsd)}`]: ins.costParts.inputUsd
+  }
+
+  // ~4 chars per token turns raw content sizes into a rough token estimate
+  const est = (chars: number): number => Math.round(chars / 4)
+  const composition: Record<string, number> = {
+    'Agent output': est(ins.composition.assistantChars),
+    // User turns also carry harness-injected context (system reminders etc.)
+    'User turns (incl. injected context)': est(ins.composition.userChars),
+    'Hooks & attachments': est(ins.composition.attachmentChars)
+  }
+  for (const [tool, chars] of Object.entries(ins.composition.toolChars)) {
+    composition[`${tool} output`] = est(chars)
+  }
+
+  const avgContext =
+    ins.apiTurns > 0
+      ? (s.totals.inputTokens + s.totals.cacheReadTokens + s.totals.cacheCreationTokens) /
+        ins.apiTurns
+      : 0
+
+  return (
+    <div className="detail">
+      <div className="detail-col detail-col-wide">
+        <h3 className="detail-section">Spend by token type</h3>
+        <CountList counts={spend} emptyLabel="No usage recorded." format={formatCost} />
+
+        <h3 className="detail-section">Why</h3>
+        <dl className="detail-grid detail-grid-wide">
+          <dt>LLM round trips</dt>
+          <dd>
+            {ins.apiTurns} turns · {formatCost(ins.apiTurns > 0 ? s.costUsd / ins.apiTurns : 0)}
+            /turn — every turn re-reads the whole context
+          </dd>
+
+          <dt>Avg context/turn</dt>
+          <dd>{formatTokens(Math.round(avgContext))} tokens</dd>
+
+          <dt>Cache refreshes</dt>
+          <dd>
+            {ins.cacheRefreshCount === 0 ? (
+              'none — no cold-cache re-writes detected'
+            ) : (
+              <>
+                {ins.cacheRefreshCount} × <Snowflake small /> cost ≈
+                {formatCost(ins.cacheRefreshUsd)} re-writing context after the cache expired
+              </>
+            )}
+          </dd>
+        </dl>
+      </div>
+
+      <div className="detail-col detail-col-wide">
+        <h3 className="detail-section">What fills the context (est. tokens)</h3>
+        <CountList
+          counts={composition}
+          emptyLabel="No content recorded."
+          format={(n) => formatTokens(n)}
+        />
+        <div className="detail-note">
+          Estimated from transcript content sizes (~4 chars/token). System prompt and file reads
+          into context are included in the totals above but not itemized here.
+        </div>
+      </div>
     </div>
   )
 }

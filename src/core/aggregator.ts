@@ -1,6 +1,7 @@
-import type { SessionStatus, SessionSummary, TokenTotals } from '../shared/types'
+import { emptyInsights } from '../shared/types'
+import type { SessionInsights, SessionStatus, SessionSummary, TokenTotals } from '../shared/types'
 import type { TranscriptRecord } from './parser'
-import { contextWindowFor, usageCostUsd } from './pricing'
+import { contextWindowFor, usageCostParts } from './pricing'
 
 /** A session with activity newer than this is considered running */
 const ACTIVE_WINDOW_MS = 2 * 60 * 1000
@@ -25,12 +26,18 @@ interface SessionState {
   commands: Record<string, number>
   agents: Record<string, number>
   cacheTtlMs: number
-  /** tool_use block ids already counted (guards against file re-reads) */
-  seenToolUseIds: Set<string>
+  insights: SessionInsights
+  /** timestamp of the last counted main-conversation turn (cache-refresh detection) */
+  lastTurnAt: number | null
+  /** tool_use ids already counted, mapped to tool name for tool_result attribution */
+  seenToolUseIds: Map<string, string>
   lastEvent: LastEvent
   /** message.ids whose usage has been counted (one API response can span several records) */
   seenMessageIds: Set<string>
 }
+
+/** A cold-cache re-write smaller than this is just ordinary context growth */
+const REFRESH_MIN_TOKENS = 10_000
 
 export interface FileOrigin {
   sessionId: string
@@ -80,6 +87,14 @@ export class SessionAggregator {
       tools: { ...summary.tools },
       commands: { ...summary.commands },
       agents: { ...summary.agents },
+      insights: {
+        ...summary.insights,
+        costParts: { ...summary.insights.costParts },
+        composition: {
+          ...summary.insights.composition,
+          toolChars: { ...summary.insights.composition.toolChars }
+        }
+      },
       // A session can't still be running if all we have is its stored row
       status: summary.status === 'running' ? 'interrupted' : summary.status
     })
@@ -104,7 +119,28 @@ export class SessionAggregator {
         s.totals.outputTokens += record.usage.outputTokens
         s.totals.cacheCreationTokens += record.usage.cacheCreationTokens
         s.totals.cacheReadTokens += record.usage.cacheReadTokens
-        s.costUsd += usageCostUsd(record.model, record.usage)
+        const parts = usageCostParts(record.model, record.usage)
+        s.insights.costParts.inputUsd += parts.inputUsd
+        s.insights.costParts.outputUsd += parts.outputUsd
+        s.insights.costParts.cacheWriteUsd += parts.cacheWriteUsd
+        s.insights.costParts.cacheReadUsd += parts.cacheReadUsd
+        s.costUsd += parts.inputUsd + parts.outputUsd + parts.cacheWriteUsd + parts.cacheReadUsd
+
+        if (!origin.isSubagent) {
+          s.insights.apiTurns += 1
+          // A large cache write after the TTL lapsed = the cold-cache tax:
+          // the context had to be re-written at the cache-write premium.
+          if (
+            s.lastTurnAt !== null &&
+            record.timestamp !== null &&
+            record.timestamp - s.lastTurnAt > s.cacheTtlMs &&
+            record.usage.cacheCreationTokens > REFRESH_MIN_TOKENS
+          ) {
+            s.insights.cacheRefreshCount += 1
+            s.insights.cacheRefreshUsd += parts.cacheWriteUsd
+          }
+          if (record.timestamp !== null) s.lastTurnAt = record.timestamp
+        }
       }
     }
 
@@ -129,10 +165,11 @@ export class SessionAggregator {
       for (const tu of record.toolUses) {
         const key = tu.id ?? `${record.uuid ?? 'rec'}:${tu.name}`
         if (s.seenToolUseIds.has(key)) continue
-        s.seenToolUseIds.add(key)
+        s.seenToolUseIds.set(key, tu.name)
         s.tools[tu.name] = (s.tools[tu.name] ?? 0) + 1
         if (tu.subagentType) s.agents[tu.subagentType] = (s.agents[tu.subagentType] ?? 0) + 1
       }
+      s.insights.composition.assistantChars += record.assistantTextChars
       s.messageCount += 1
       if (record.stopReason === 'refusal') s.lastEvent = 'assistant-error'
       else if (record.stopReason === 'end_turn' || record.stopReason === 'stop_sequence') {
@@ -145,6 +182,17 @@ export class SessionAggregator {
       if (record.commandName) {
         s.commands[record.commandName] = (s.commands[record.commandName] ?? 0) + 1
       }
+      if (record.toolResults.length > 0) {
+        for (const tr of record.toolResults) {
+          const tool = (tr.toolUseId && s.seenToolUseIds.get(tr.toolUseId)) || 'other'
+          s.insights.composition.toolChars[tool] =
+            (s.insights.composition.toolChars[tool] ?? 0) + tr.chars
+        }
+      } else {
+        s.insights.composition.userChars += record.userTextChars
+      }
+    } else if (record.type === 'attachment') {
+      s.insights.composition.attachmentChars += record.attachmentChars
     }
   }
 
@@ -175,7 +223,17 @@ export class SessionAggregator {
         tools: { ...s.tools },
         commands: { ...s.commands },
         agents: { ...s.agents },
-        cacheTtlMs: s.cacheTtlMs
+        cacheTtlMs: s.cacheTtlMs,
+        insights: {
+          costParts: { ...s.insights.costParts },
+          apiTurns: s.insights.apiTurns,
+          cacheRefreshCount: s.insights.cacheRefreshCount,
+          cacheRefreshUsd: s.insights.cacheRefreshUsd,
+          composition: {
+            ...s.insights.composition,
+            toolChars: { ...s.insights.composition.toolChars }
+          }
+        }
       }
     })
   }
@@ -201,7 +259,9 @@ export class SessionAggregator {
         commands: {},
         agents: {},
         cacheTtlMs: 300_000,
-        seenToolUseIds: new Set(),
+        insights: emptyInsights(),
+        lastTurnAt: null,
+        seenToolUseIds: new Map(),
         lastEvent: 'none',
         seenMessageIds: new Set()
       }
