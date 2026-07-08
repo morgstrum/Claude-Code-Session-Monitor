@@ -39,6 +39,8 @@ interface SessionState {
 /** A cold-cache re-write smaller than this is just ordinary context growth */
 const REFRESH_MIN_TOKENS = 10_000
 
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
 export interface FileOrigin {
   sessionId: string
   projectDir: string
@@ -94,6 +96,11 @@ export class SessionAggregator {
         composition: {
           ...summary.insights.composition,
           toolChars: { ...summary.insights.composition.toolChars }
+        },
+        efficiency: {
+          ...summary.insights.efficiency,
+          fileEdits: { ...summary.insights.efficiency.fileEdits },
+          fileReads: { ...summary.insights.efficiency.fileReads }
         }
       },
       // A session can't still be running if all we have is its stored row
@@ -146,6 +153,15 @@ export class SessionAggregator {
             writeUsd: parts.cacheWriteUsd,
             refresh: isRefresh
           })
+          // The turn carrying the first edit is implementation, not comprehension
+          if (record.toolUses.some((tu) => EDIT_TOOLS.has(tu.name))) {
+            s.insights.efficiency.firstEditSeen = true
+          }
+          if (!s.insights.efficiency.firstEditSeen) {
+            s.insights.efficiency.costToFirstEditUsd +=
+              parts.inputUsd + parts.outputUsd + parts.cacheWriteUsd + parts.cacheReadUsd
+            s.insights.efficiency.turnsToFirstEdit += 1
+          }
           if (record.timestamp !== null) s.lastTurnAt = record.timestamp
         }
       }
@@ -175,6 +191,13 @@ export class SessionAggregator {
         s.seenToolUseIds.set(key, tu.name)
         s.tools[tu.name] = (s.tools[tu.name] ?? 0) + 1
         if (tu.subagentType) s.agents[tu.subagentType] = (s.agents[tu.subagentType] ?? 0) + 1
+        const eff = s.insights.efficiency
+        if (EDIT_TOOLS.has(tu.name)) {
+          eff.firstEditSeen = true
+          if (tu.filePath) eff.fileEdits[tu.filePath] = (eff.fileEdits[tu.filePath] ?? 0) + 1
+        } else if (tu.name === 'Read' && tu.filePath) {
+          eff.fileReads[tu.filePath] = (eff.fileReads[tu.filePath] ?? 0) + 1
+        }
       }
       s.insights.composition.assistantChars += record.assistantTextChars
       s.messageCount += 1
@@ -185,7 +208,10 @@ export class SessionAggregator {
     } else if (record.type === 'user') {
       if (record.isUserText) s.messageCount += 1
       s.lastEvent = 'user'
-      if (record.isCompactBoundary) s.contextTokens = 0
+      if (record.isCompactBoundary) {
+        s.contextTokens = 0
+        s.insights.efficiency.compactions += 1
+      }
       if (record.commandName) {
         s.commands[record.commandName] = (s.commands[record.commandName] ?? 0) + 1
       }
@@ -194,9 +220,12 @@ export class SessionAggregator {
           const tool = (tr.toolUseId && s.seenToolUseIds.get(tr.toolUseId)) || 'other'
           s.insights.composition.toolChars[tool] =
             (s.insights.composition.toolChars[tool] ?? 0) + tr.chars
+          if (tr.isError) s.insights.efficiency.toolErrors += 1
         }
       } else {
         s.insights.composition.userChars += record.userTextChars
+        if (record.isUserText) s.insights.efficiency.userTurns += 1
+        if (record.isCorrection) s.insights.efficiency.corrections += 1
       }
     } else if (record.type === 'attachment') {
       s.insights.composition.attachmentChars += record.attachmentChars
@@ -240,6 +269,11 @@ export class SessionAggregator {
           composition: {
             ...s.insights.composition,
             toolChars: { ...s.insights.composition.toolChars }
+          },
+          efficiency: {
+            ...s.insights.efficiency,
+            fileEdits: { ...s.insights.efficiency.fileEdits },
+            fileReads: { ...s.insights.efficiency.fileReads }
           }
         }
       }

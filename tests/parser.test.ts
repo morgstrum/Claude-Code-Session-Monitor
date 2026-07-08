@@ -111,8 +111,8 @@ describe('parseLine', () => {
       })
     )
     expect(r!.toolUses).toEqual([
-      { id: 'toolu_1', name: 'Bash', subagentType: null },
-      { id: 'toolu_2', name: 'Agent', subagentType: 'Explore' }
+      { id: 'toolu_1', name: 'Bash', subagentType: null, filePath: null },
+      { id: 'toolu_2', name: 'Agent', subagentType: 'Explore', filePath: null }
     ])
   })
 

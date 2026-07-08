@@ -343,6 +343,53 @@ describe('SessionAggregator', () => {
     expect(c.userChars).toBe('thanks'.length)
   })
 
+  it('collects efficiency signals: errors, churn, re-reads, corrections, first-edit cost', () => {
+    const agg = new SessionAggregator()
+    const toolTurn = (id: string, ts: string, name: string, filePath?: string): string =>
+      JSON.stringify({
+        type: 'assistant',
+        uuid: `a-${id}`,
+        timestamp: ts,
+        sessionId: 'sess-1',
+        message: {
+          role: 'assistant',
+          id,
+          model: 'claude-opus-4-8',
+          content: [{ type: 'tool_use', id: `toolu_${id}`, name, input: { file_path: filePath } }],
+          usage: { input_tokens: 1000, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+        }
+      })
+    const errResult = (toolId: string): string =>
+      JSON.stringify({
+        type: 'user',
+        uuid: `u-${toolId}`,
+        sessionId: 'sess-1',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: `toolu_${toolId}`, content: 'boom', is_error: true }]
+        }
+      })
+    apply(agg, mainOrigin, [
+      user('2026-06-18T09:59:00Z', 'build the thing'),
+      toolTurn('t1', '2026-06-18T10:00:00Z', 'Read', '/p/a.ts'),
+      toolTurn('t2', '2026-06-18T10:01:00Z', 'Read', '/p/a.ts'),
+      errResult('t2'),
+      toolTurn('t3', '2026-06-18T10:02:00Z', 'Edit', '/p/b.ts'),
+      toolTurn('t4', '2026-06-18T10:03:00Z', 'Edit', '/p/b.ts'),
+      user('2026-06-18T10:04:00Z', "no, that's not what I meant")
+    ])
+    const eff = agg.snapshot()[0]!.insights.efficiency
+    expect(eff.fileReads).toEqual({ '/p/a.ts': 2 })
+    expect(eff.fileEdits).toEqual({ '/p/b.ts': 2 })
+    expect(eff.toolErrors).toBe(1)
+    expect(eff.corrections).toBe(1)
+    expect(eff.userTurns).toBe(2)
+    expect(eff.firstEditSeen).toBe(true)
+    // First edit happened on turn 3: the two Read turns count as pre-edit cost
+    expect(eff.turnsToFirstEdit).toBe(2)
+    expect(eff.costToFirstEditUsd).toBeCloseTo(2 * ((1000 * 5 + 10 * 25) / 1e6), 10)
+  })
+
   it('restores persisted sessions and downgrades stale running status', () => {
     const agg = new SessionAggregator()
     agg.restore(storedSummary('old-1'))

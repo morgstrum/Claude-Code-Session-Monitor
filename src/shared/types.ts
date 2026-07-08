@@ -19,6 +19,40 @@ export interface TurnCost {
   refresh: boolean
 }
 
+/** Efficiency signals used by the Advice tab */
+export interface EfficiencySignals {
+  /** tool results flagged is_error (failed commands, bad paths, …) */
+  toolErrors: number
+  /** context compaction events (context window overflowed) */
+  compactions: number
+  /** user messages that read as corrections — heuristic */
+  corrections: number
+  /** user text messages (interaction granularity) */
+  userTurns: number
+  /** spend and turns before the first Edit/Write — comprehension overhead */
+  costToFirstEditUsd: number
+  turnsToFirstEdit: number
+  firstEditSeen: boolean
+  /** Edit/Write counts per file — high counts = rework churn */
+  fileEdits: Record<string, number>
+  /** Read counts per file — high counts = missing docs/memory */
+  fileReads: Record<string, number>
+}
+
+export function emptyEfficiency(): EfficiencySignals {
+  return {
+    toolErrors: 0,
+    compactions: 0,
+    corrections: 0,
+    userTurns: 0,
+    costToFirstEditUsd: 0,
+    turnsToFirstEdit: 0,
+    firstEditSeen: false,
+    fileEdits: {},
+    fileReads: {}
+  }
+}
+
 /** Derived cost-driver metrics for one session */
 export interface SessionInsights {
   costParts: CostBreakdown
@@ -37,6 +71,7 @@ export interface SessionInsights {
     attachmentChars: number
     toolChars: Record<string, number>
   }
+  efficiency: EfficiencySignals
 }
 
 export function emptyInsights(): SessionInsights {
@@ -46,7 +81,8 @@ export function emptyInsights(): SessionInsights {
     turns: [],
     cacheRefreshCount: 0,
     cacheRefreshUsd: 0,
-    composition: { assistantChars: 0, userChars: 0, attachmentChars: 0, toolChars: {} }
+    composition: { assistantChars: 0, userChars: 0, attachmentChars: 0, toolChars: {} },
+    efficiency: emptyEfficiency()
   }
 }
 

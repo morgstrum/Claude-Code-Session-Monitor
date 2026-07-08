@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { emptyInsights } from '../shared/types'
+import { emptyEfficiency, emptyInsights } from '../shared/types'
 import type { SessionInsights, SessionStatus, SessionSummary } from '../shared/types'
 
 interface SessionRow {
@@ -43,6 +43,12 @@ function parseInsights(json: string | null | undefined): SessionInsights {
         ...empty.composition,
         ...v.composition,
         toolChars: v.composition?.toolChars ?? {}
+      },
+      efficiency: {
+        ...emptyEfficiency(),
+        ...v.efficiency,
+        fileEdits: v.efficiency?.fileEdits ?? {},
+        fileReads: v.efficiency?.fileReads ?? {}
       }
     }
   } catch {

@@ -551,7 +551,200 @@ interface DetailProps {
   now: number
 }
 
-type DetailTab = 'overview' | 'cost' | 'tools' | 'commands' | 'agents'
+type DetailTab = 'overview' | 'cost' | 'advice' | 'tools' | 'commands' | 'agents'
+
+interface Advice {
+  title: string
+  evidence: string
+  tip: string
+}
+
+const EXPLORE_TOOLS = ['Read', 'Grep', 'Glob', 'LS']
+
+function topEntries(rec: Record<string, number>, min: number, n: number): Array<[string, number]> {
+  return Object.entries(rec)
+    .filter(([, v]) => v >= min)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+}
+
+function baseName(p: string): string {
+  const parts = p.split('/')
+  return parts[parts.length - 1] || p
+}
+
+function buildAdvice(s: SessionSummary): Advice[] {
+  const ins = s.insights
+  const eff = ins.efficiency
+  const advice: Advice[] = []
+  const toolCalls = countOf(s.tools)
+  const exploreCalls = EXPLORE_TOOLS.reduce((a, t) => a + (s.tools[t] ?? 0), 0)
+
+  if (eff.compactions > 0) {
+    advice.push({
+      title: 'Context overflowed — work likely too big for one session',
+      evidence: `${eff.compactions} compaction${eff.compactions > 1 ? 's' : ''}: the context filled up and had to be summarized, losing detail.`,
+      tip: 'Split the work into smaller sessions with a fresh context each. A compaction means every earlier token was paid for and then thrown away.'
+    })
+  }
+
+  if (ins.turns.length >= 40) {
+    const q = Math.floor(ins.turns.length / 4)
+    const avg = (ts: typeof ins.turns): number => ts.reduce((a, t) => a + t.usd, 0) / ts.length
+    const first = avg(ins.turns.slice(0, q))
+    const last = avg(ins.turns.slice(-q))
+    if (first > 0 && last / first > 2.5) {
+      advice.push({
+        title: 'Cost per turn grew steeply as the session aged',
+        evidence: `Late turns average ${formatCost(last)} vs ${formatCost(first)} early — ${(last / first).toFixed(1)}× more, because every turn re-reads the grown context.`,
+        tip: 'Long sessions pay compounding rent on their context. Finish or hand off to a fresh session once the immediate task is done.'
+      })
+    }
+  }
+
+  if (eff.firstEditSeen && s.costUsd > 5 && eff.costToFirstEditUsd / s.costUsd > 0.2) {
+    advice.push({
+      title: 'Large comprehension overhead before the first change',
+      evidence: `${formatCost(eff.costToFirstEditUsd)} (${Math.round((eff.costToFirstEditUsd / s.costUsd) * 100)}% of session cost) and ${eff.turnsToFirstEdit} turns were spent before the first edit.`,
+      tip: 'The agent bought understanding of the codebase with tokens. An architecture overview in CLAUDE.md, or pointing at the right files in the prompt, front-loads that knowledge for free.'
+    })
+  }
+
+  if (toolCalls >= 30 && exploreCalls / toolCalls > 0.5) {
+    advice.push({
+      title: 'Session was dominated by exploration',
+      evidence: `${Math.round((exploreCalls / toolCalls) * 100)}% of ${toolCalls} tool calls were Read/Grep/Glob/LS.`,
+      tip: 'Heavy searching suggests structure or naming was hard to navigate. Consider a CLAUDE.md map of key modules, or delegate exploration to subagents so it doesn’t bloat the main context.'
+    })
+  }
+
+  const reReads = topEntries(eff.fileReads, 4, 3)
+  if (reReads.length > 0) {
+    advice.push({
+      title: 'Same files re-read repeatedly',
+      evidence: reReads.map(([f, n]) => `${baseName(f)} ×${n}`).join(', '),
+      tip: 'Files the agent keeps coming back to are prime CLAUDE.md material — summarize their role and invariants so re-reading (and re-paying) stops.'
+    })
+  }
+
+  const churn = topEntries(eff.fileEdits, 6, 3)
+  if (churn.length > 0) {
+    advice.push({
+      title: 'High edit churn on a few files',
+      evidence: churn.map(([f, n]) => `${baseName(f)} edited ×${n}`).join(', '),
+      tip: 'Many edits to one file can mean requirements arrived piecemeal or the approach thrashed. Fuller specs up front, or asking for a plan first, cuts rework loops.'
+    })
+  }
+
+  if (eff.toolErrors >= 10 && toolCalls > 0 && eff.toolErrors / toolCalls > 0.08) {
+    advice.push({
+      title: 'Many failed tool calls',
+      evidence: `${eff.toolErrors} tool errors (${Math.round((eff.toolErrors / toolCalls) * 100)}% of calls).`,
+      tip: 'Each failure costs a full round trip. Common causes: missing build/test setup the agent had to discover, flaky commands, or permissions friction — document the working commands in CLAUDE.md.'
+    })
+  }
+
+  if (ins.cacheRefreshCount > 0) {
+    advice.push({
+      title: 'Paid cold-cache restarts',
+      evidence: `${ins.cacheRefreshCount} cache refresh${ins.cacheRefreshCount > 1 ? 'es' : ''} cost ≈${formatCost(ins.cacheRefreshUsd)} re-writing context after idle gaps.`,
+      tip: 'Resume sessions while the ❄ hasn’t appeared, or wrap up before stepping away — an expired cache re-bills the whole context at the write premium.'
+    })
+  }
+
+  if (eff.corrections >= 3) {
+    advice.push({
+      title: 'Several corrective replies',
+      evidence: `${eff.corrections} of your messages read as corrections ("no…", "actually…", "that's not what I meant…").`,
+      tip: 'Corrections mean paid work got discarded. Spending a minute on the initial prompt — constraints, examples, what NOT to do — is far cheaper than steering afterwards.'
+    })
+  }
+
+  if (countOf(s.agents) === 0 && exploreCalls >= 60) {
+    advice.push({
+      title: 'No subagents despite heavy exploration',
+      evidence: `${exploreCalls} exploration calls all ran in the main conversation, growing the context every turn pays to re-read.`,
+      tip: 'Ask the agent to use subagents for searches and research — they explore in a disposable context and return only conclusions.'
+    })
+  }
+
+  return advice
+}
+
+function buildAnalysisPrompt(s: SessionSummary): string {
+  const ins = s.insights
+  const eff = ins.efficiency
+  const toolCalls = countOf(s.tools)
+  const exploreCalls = EXPLORE_TOOLS.reduce((a, t) => a + (s.tools[t] ?? 0), 0)
+  const reReads = topEntries(eff.fileReads, 3, 5)
+    .map(([f, n]) => `${f} ×${n}`)
+    .join(', ')
+  const churn = topEntries(eff.fileEdits, 4, 5)
+    .map(([f, n]) => `${f} ×${n}`)
+    .join(', ')
+  return `Review this finished Claude Code session for cost efficiency and effectiveness. Be direct and specific.
+
+Transcript: ${s.filePath}
+Working directory: ${s.cwd}
+
+Measured stats:
+- Total cost ${formatCost(s.costUsd)} over ${ins.apiTurns} LLM turns (${formatCost(ins.apiTurns > 0 ? s.costUsd / ins.apiTurns : 0)}/turn)
+- Spend: cache reads ${formatCost(ins.costParts.cacheReadUsd)}, cache writes ${formatCost(ins.costParts.cacheWriteUsd)}, output ${formatCost(ins.costParts.outputUsd)}, uncached input ${formatCost(ins.costParts.inputUsd)}
+- ${ins.cacheRefreshCount} cold-cache refreshes (≈${formatCost(ins.cacheRefreshUsd)}), ${eff.compactions} context compactions
+- ${toolCalls} tool calls (${exploreCalls} exploration), ${eff.toolErrors} tool errors, cost before first edit ${formatCost(eff.costToFirstEditUsd)}
+- Frequently re-read files: ${reReads || 'none'}
+- High-churn files: ${churn || 'none'}
+- ${eff.userTurns} user messages, ~${eff.corrections} corrections
+
+Read the transcript (sample strategically if large — first prompt, corrections, error clusters, the most expensive stretches). Then answer:
+1. Was the initial prompt well specified? Quote what was missing or ambiguous.
+2. Should the work have been split into smaller sessions or delegated to subagents? Where exactly?
+3. Did codebase structure or missing documentation force excess exploration? What specifically should go into CLAUDE.md?
+4. Which failed or repeated work cost the most, and what setup change would prevent it?
+5. Top 3 changes to how I prompt or structure work that would cut cost the most next time.`
+}
+
+function DetailAdvice({ s }: { s: SessionSummary }): React.JSX.Element {
+  const advice = buildAdvice(s)
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="detail detail-advice">
+      <div className="detail-col-full">
+        {advice.length === 0 ? (
+          <div className="advice-clear">
+            No inefficiency signals detected — this session looks lean.
+          </div>
+        ) : (
+          advice.map((a) => (
+            <div key={a.title} className="advice-item">
+              <div className="advice-title">{a.title}</div>
+              <div className="advice-evidence">{a.evidence}</div>
+              <div className="advice-tip">{a.tip}</div>
+            </div>
+          ))
+        )}
+        <div className="advice-analyze">
+          <button
+            type="button"
+            className="analyze-btn"
+            onClick={() => {
+              void navigator.clipboard.writeText(buildAnalysisPrompt(s))
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            }}
+          >
+            {copied ? 'Copied ✓' : 'Copy analysis prompt'}
+          </button>
+          <span className="advice-analyze-hint">
+            Paste into a fresh Claude Code session for a qualitative review of this session:
+            prompt quality, chunking, and what to add to CLAUDE.md. The heuristics above count;
+            Claude can judge.
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function countOf(rec: Record<string, number>): number {
   return Object.values(rec).reduce((a, n) => a + n, 0)
@@ -592,9 +785,11 @@ function CountList({
 function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
   const [tab, setTab] = useState<DetailTab>('overview')
 
+  const adviceCount = buildAdvice(s).length
   const tabs: Array<{ key: DetailTab; label: string }> = [
     { key: 'overview', label: 'Overview' },
     { key: 'cost', label: 'Cost' },
+    { key: 'advice', label: adviceCount > 0 ? `Advice (${adviceCount})` : 'Advice' },
     { key: 'tools', label: `Tools (${countOf(s.tools)})` },
     { key: 'commands', label: `Commands (${countOf(s.commands)})` },
     { key: 'agents', label: `Agents (${countOf(s.agents)})` }
@@ -616,6 +811,7 @@ function SessionDetail({ s, now }: DetailProps): React.JSX.Element {
       </div>
       {tab === 'overview' && <DetailOverview s={s} now={now} />}
       {tab === 'cost' && <DetailCost s={s} />}
+      {tab === 'advice' && <DetailAdvice s={s} />}
       {tab === 'tools' && (
         <div className="detail-pane">
           <CountList counts={s.tools} emptyLabel="No tool calls recorded." />

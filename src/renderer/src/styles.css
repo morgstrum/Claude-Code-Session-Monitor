@@ -666,6 +666,70 @@ tbody tr:hover {
   margin-left: 10px;
 }
 
+/* --- advice tab --- */
+
+.detail-advice .detail-col-full {
+  max-width: 760px;
+}
+
+.advice-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.advice-title {
+  font-weight: 600;
+}
+
+.advice-evidence {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.advice-tip {
+  margin-top: 5px;
+}
+
+.advice-clear {
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.advice-analyze {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.analyze-btn {
+  flex: none;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analyze-btn:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.advice-analyze-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 86px 1fr;

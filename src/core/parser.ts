@@ -14,6 +14,8 @@ export interface ToolUse {
   name: string
   /** set when this is an agent spawn (Agent/Task tool) */
   subagentType: string | null
+  /** file the tool targeted, for Read/Edit/Write-style tools */
+  filePath: string | null
 }
 
 export interface TranscriptRecord {
@@ -42,7 +44,9 @@ export interface TranscriptRecord {
   /** chars of user-authored text in this record */
   userTextChars: number
   /** tool_result blocks in user records: result size per originating tool_use */
-  toolResults: Array<{ toolUseId: string | null; chars: number }>
+  toolResults: Array<{ toolUseId: string | null; chars: number; isError: boolean }>
+  /** user records: heuristic — the message reads like a correction */
+  isCorrection: boolean
   /** chars of attachment payloads (hook output, injected file/system context) */
   attachmentChars: number
   /** user records: slash command name when the message is a command invocation */
@@ -82,7 +86,7 @@ export function parseLine(line: string): TranscriptRecord | null {
   let cacheTtl: '1h' | '5m' | null = null
   let assistantTextChars = 0
   let userTextChars = 0
-  const toolResults: Array<{ toolUseId: string | null; chars: number }> = []
+  const toolResults: Array<{ toolUseId: string | null; chars: number; isError: boolean }> = []
   if (raw.type === 'assistant' && message) {
     model = str(message.model)
     messageId = str(message.id)
@@ -118,7 +122,8 @@ export function parseLine(line: string): TranscriptRecord | null {
         toolUses.push({
           id: str(block.id),
           name,
-          subagentType: input ? str(input.subagent_type) : null
+          subagentType: input ? str(input.subagent_type) : null,
+          filePath: input ? str(input.file_path) : null
         })
       }
     }
@@ -127,6 +132,7 @@ export function parseLine(line: string): TranscriptRecord | null {
   let isUserText = false
   let isCompactBoundary = false
   let commandName: string | null = null
+  let isCorrection = false
   if (raw.type === 'user' && message) {
     const content = message.content
     let text = ''
@@ -149,10 +155,17 @@ export function parseLine(line: string): TranscriptRecord | null {
         if (!b || typeof b !== 'object') continue
         const block = b as Record<string, unknown>
         if (block.type !== 'tool_result') continue
-        toolResults.push({ toolUseId: str(block.tool_use_id), chars: contentChars(block.content) })
+        toolResults.push({
+          toolUseId: str(block.tool_use_id),
+          chars: contentChars(block.content),
+          isError: block.is_error === true
+        })
       }
     }
     userTextChars = text.length
+    if (isUserText && toolResults.length === 0) {
+      isCorrection = CORRECTION_RE.test(text.trim())
+    }
     const cmd = /<command-name>([^<]+)<\/command-name>/.exec(text)
     if (cmd?.[1]) commandName = cmd[1].trim()
     if ((raw as { isCompactSummary?: unknown }).isCompactSummary === true) {
@@ -197,9 +210,14 @@ export function parseLine(line: string): TranscriptRecord | null {
     assistantTextChars,
     userTextChars,
     toolResults,
+    isCorrection,
     attachmentChars
   }
 }
+
+/** Heuristic only: messages opening with correction language */
+const CORRECTION_RE =
+  /^(no[,.\s!]|nope|actually[,\s]|that'?s (not|wrong)|not what i|wrong[,.\s]|instead[,\s]|undo |revert |stop[,.\s!]|don'?t do)/i
 
 /** Size of a tool_result content payload: plain string or array of text blocks */
 function contentChars(content: unknown): number {
